@@ -1,0 +1,761 @@
+================================================================================
+ПЛАН РЕФАКТОРИНГА: mission_6states
+Перенос функционала из Jupyter-ноутбуков (scripts/) в библиотеку subspace_conjugacy
+================================================================================
+
+Дата составления: 2026-09-14
+Последнее обновление: 2026-09-14 (Theory alignment — канонический алгоритм кластеризации)
+Назначение документа: использовать каждую фазу/подфазу как промпт для отдельной
+сессии разработки. Каждый блок содержит контекст, цели, задачи, API, критерии
+приёмки и связи с теорией, ноутбуками и библиотекой.
+
+ПРИОРИТЕТ РЕАЛИЗАЦИИ:
+  - Канон (source of truth) — описание алгоритма кластеризации из теории (секция 1).
+  - Библиотека subspace_conjugacy должна реализовывать канон.
+  - Ноутбуки scripts/ — reference implementation + parity-тесты (могут расходиться с каноном).
+  - Legacy-модули для NB4 сохраняются только для воспроизведения ноутбуков.
+
+================================================================================
+0. КОНТЕКСТ ПРОЕКТА
+================================================================================
+
+Проект реализует метод Fursov (подпространственная сопряжённость) для
+классификации МРТ-изображений опухолей мозга.
+
+Классы данных:
+  - glioma      (глиома)
+  - meningioma  (менингиома)
+  - pituitary   (гипофиз)
+  - test        (тестовая выборка: 75 изображений, по 25 на класс)
+
+Размер изображений после препроцессинга: 256×256 px.
+Размерность вектора признаков: 65536 (256×256, горизонтальный или вертикальный обход).
+
+Количество подклассов (кластеров) на каждый класс опухоли: 8 (n_subclasses=8,
+подбирается экспериментально, в ноутбуках зафиксировано 8).
+Итого глобальных подклассов при классификации: 24 (8 × 3 класса).
+Базис каждого подкласса для классификации: ровно 2 опорных вектора (subclass_factor=2).
+
+Исходные ноутбуки (scripts/):
+  1_image_resizer.ipynb
+  2_dataset_preparing.ipynb / 2_1_dataset_preparing.ipynb
+  3_Fursov_method_make_vectors.ipynb
+  4_1_Fursov_vector_processing (for glioma|meningioma|pituitary).ipynb
+  5_1_Fursov_reference_vector_processing (for glioma|meningioma|pituitary).ipynb
+  5_t_Fursov_reference_vector_processing (for glioma)-Copy1.ipynb  [вариант n=12]
+  6_Fursov_new subclasses(for glioma|meningioma|pituitary).ipynb
+  7_2_Fursov_fulfilling_new_subclasses (for glioma|meningioma|pituitary).ipynb
+  7_2_hf_Fursov_fulfilling_new_subclasses (for glioma|meningioma|pituitary).ipynb
+  7_master_Fursov_fulfilling_new_subclasses (dataset).ipynb
+  8_Fursov_classification.ipynb
+
+Существующая библиотека (subspace_conjugacy/):
+  core/metrics.py          — conjugate_criterion, cosine_similarity_matrix
+  models/base.py           — BaseSubspaceEstimator (sklearn-интерфейс)
+  models/clusterer.py      — SubspaceClusterer (частично совпадает с теорией)
+  models/classifier.py     — SubspaceConjugacyClassifier
+  io/persistence.py        — pickle / npz / json для моделей
+  utils/validation.py      — валидация X, y, Y, гиперпараметров
+
+Отсутствует в библиотеке:
+  - __init__.py, pyproject.toml, requirements.txt
+  - preprocessing (resize, centering, normalization)
+  - features/vectorization
+  - algorithms/ (каноническая кластеризация + legacy для ноутбуков)
+  - io/vectors.py (CSV из ноутбуков)
+  - pipeline orchestrator
+  - evaluation metrics
+  - pytest-тесты, parity-тесты (канон + ноутбуки)
+
+Все пути в ноутбуках захардкожены под macOS:
+  /Users/vladkorsikov/research/dataset_main/...
+Их нужно заменить на конфигурируемые пути (DatasetConfig).
+
+================================================================================
+1. THEORY ALIGNMENT — КАНОНИЧЕСКИЙ АЛГОРИТМ КЛАСТЕРИЗАЦИИ
+================================================================================
+
+Источник: описание алгоритма кластеризации (теория проекта).
+Область применения: эталонные (обучающие) изображения одного класса патологии
+(одно множество векторов X shape (M, N) на класс).
+
+----------------------------------------------------------------------
+1.1. МАТЕМАТИЧЕСКИЕ ОПРЕДЕЛЕНИЯ
+----------------------------------------------------------------------
+
+Косинусный критерий (сходство) для векторов a, b:
+  cos(a, b) = (a·b) / (||a|| · ||b||)
+
+Показатель сопряжённости вектора x с подпространством, натянутым на столбцы Y
+(N×k):
+  R(x, Y) = (xᵀ Y (Yᵀ Y)⁻¹ Yᵀ x) / (xᵀ x)
+
+Реализация в библиотеке:
+  - cos(a, b)           → cosine_similarity_matrix() или pairwise из неё
+  - R(x, Y)             → conjugate_criterion(x, Y) в core/metrics.py
+  - (Yᵀ Y)⁻¹            → compute_gram_inverse(Y) с reg_param (Тихонов)
+
+Диапазон R: [0, 1] (clip в metrics.py).
+
+----------------------------------------------------------------------
+1.2. ФАЗА A — ПОИСК ЦЕНТРОВ КЛАСТЕРОВ (n_subclasses центров)
+----------------------------------------------------------------------
+
+Выполняется на множестве эталонных векторов одного класса.
+
+ШАГ A.1 — Первая пара центров (2 центра):
+  Перебрать ВСЕ возможные пары векторов (i, j), i ≠ j.
+  Для каждой пары вычислить cos(v_i, v_j).
+  Сохранить пару с МИНИМАЛЬНым значением cos — наиболее «непохожие» изображения.
+  Результат: center_indices = [idx1, idx2].
+
+  ⚠ Не путать с NB4: там для КАЖДОГО i ищется argmin_j cos(i,j) → trio_list[M×3].
+  Канон — одна глобальная пара.
+
+ШАГ A.2 — Третий центр:
+  Y = matrix(center_1, center_2) размерности N×2.
+  Для каждого оставшегося x: вычислить R(x, Y).
+  Выбрать x с МИНИМАЛЬНым R → третий центр.
+
+ШАГ A.3 — Четвёртый и последующие центры (до n_subclasses):
+  Y = matrix(все найденные центры) размерности N×k, k = текущее число центров.
+  Для каждого оставшегося x: R(x, Y).
+  Выбрать x с МИНИМАЛЬНым R → следующий центр.
+  Повторять, пока len(centers) < n_subclasses.
+
+Инвариант: при поиске k-го центра Y строится из (k-1) уже найденных центров
+(растущая матрица), а не из фиксированной пары.
+
+----------------------------------------------------------------------
+1.3. ФАЗА B — ФОРМИРОВАНИЕ КЛАСТЕРОВ ВОКРУГ ЦЕНТРОВ
+----------------------------------------------------------------------
+
+После фазы A: n_subclasses центров (по 1 вектору на кластер).
+remaining = все векторы класса \ центры.
+
+ШАГ B.1 — Cosine seed (второй вектор в каждый подкласс):
+  Для КАЖДОГО центра c отдельно:
+    из remaining выбрать вектор v с МИНИМАЛЬНым cos(v, center_c)
+    (наиболее «непохожий» на центр по косинусу — второй элемент пары).
+  Результат: n_subclasses пар (center_c, v_c), в каждом подклассе ровно 2 вектора.
+  Использованные v удалить из remaining.
+
+  Примечание: в каждом подклассе формируется подпространство Y_s (N×2).
+
+ШАГ B.2 — Conjugacy growth (наполнение кластеров):
+  Условие входа: в каждом подклассе уже ≥ 2 вектора (после B.1 выполнено).
+  Пока remaining не пуст:
+    1. Для каждого x ∈ remaining и каждого подкласса s:
+         вычислить R(x, Y_s), где Y_s — текущая базисная матрица (N×k_s).
+         На этапе классификации k_s=2; при росте k_s может увеличиваться,
+         но для финального базиса классификатора фиксируем k=2 (см. NB6–8).
+    2. Найти пару (x*, s*) с МАКСИМАЛЬНым R(x*, Y_{s*}).
+    3. Присоединить x* к подклассу s*, обновить Y_{s*}.
+    4. Удалить x* из remaining.
+
+  Критично: присоединять СТРОГО ПО ОДНОМУ вектору за итерацию (глобальный argmax
+  по всем remaining × всем подклассам). Нельзя bulk-assign множество в один кластер.
+
+----------------------------------------------------------------------
+1.4. ФАЗА C — КЛАССИФИКАЦИЯ (применение к тестовым векторам)
+----------------------------------------------------------------------
+
+Для каждого класса патологии: n_subclasses базисов Y_{c,s} (N×2).
+Глобально: C × n_subclasses подпространств (напр. 3×8=24).
+
+Для тестового x:
+  R_{c,s} = R(x, Y_{c,s})
+  subclass* = argmax_{c,s} R_{c,s}
+  class* = c(subclass*)  [0..7→class0, 8..15→class1, ...]
+
+Опционально (NB8): proportion = R_max / mean(R_others) - 1.
+
+----------------------------------------------------------------------
+1.5. МАППИНГ: ТЕОРИЯ → МОДУЛИ БИБЛИОТЕКИ → ФАЗЫ РЕФАКТОРИНГА → НОУТБУКИ
+----------------------------------------------------------------------
+
+| Шаг теории              | Модуль (канон)                    | Фаза | Ноутбук      | Legacy / parity      |
+|-------------------------|-----------------------------------|------|--------------|----------------------|
+| A.1 Глобальная min-cos  | global_pair.py                    | 3.1  | —            | NB4 (trio_list) ⚠    |
+| A.2–A.3 Центры min R    | reference_centers.py              | 3.2  | NB5          | —                    |
+| B.1 Cosine 2-й вектор   | subclass_seed.py                  | 3.3  | NB6 ~        | —                    |
+| B.2 Max R, по 1 вектору | subclass_growth.py                | 3.4  | NB7          | —                    |
+| Фасад A+B               | clusterer.py (SubspaceClusterer)  | 3.5  | —            | текущий clusterer ⚠  |
+| Экспорт базисов k=2     | subclass_export.py                | 3.6  | NB6–7 CSV    | —                    |
+| Классификация           | classifier.py                     | 4    | NB8          | —                    |
+| Preprocessing           | preprocessing/*                   | 1    | NB1–2        | —                    |
+| Векторизация            | features/*                        | 2    | NB3          | —                    |
+
+Условные обозначения:
+  ✅ — прямое соответствие
+  ~  — частичное / эвристически близко
+  ⚠  — расхождение с каноном; сохранять как legacy для parity
+
+----------------------------------------------------------------------
+1.6. СООТВЕТСТВИЕ SubspaceClusterer (текущий код) ТЕОРИИ
+----------------------------------------------------------------------
+
+  _select_initial_centers():
+    A.1 глобальный argmin cos по всем парам     → ✅ совпадает с теорией
+    A.2–A.3 argmin R, Y растёт с центрами       → ✅ совпадает с теорией
+
+  fit_predict() — наполнение кластеров:
+    Сразу max R, growing basis                   → ⚠ нет фазы B.1 (cosine seed)
+    Один вектор за итерацию (global argmax)      → ✅ совпадает с B.2
+    Базис растёт > 2                             → ⚠ для классификации нужен k=2
+
+  Действие при рефакторинге: переписать SubspaceClusterer как фасад
+  GlobalMinCosinePairFinder → ReferenceCenterBuilder → CosineSecondVectorAttacher
+  → ConjugacyClusterGrowth, с опцией freeze_basis_at=2 для экспорта в classifier.
+
+----------------------------------------------------------------------
+1.7. РАСХОЖДЕНИЯ НОУТБУКОВ С КАНОНОМ (parity, не source of truth)
+----------------------------------------------------------------------
+
+  NB4: per-vector trio_list ≠ теория A.1 (глобальная пара).
+       NB5 берёт initial pair из NB4 вручную (напр. индекс 8) — ещё одно расхождение.
+       → Legacy: algorithms/legacy/per_vector_pairs.py (NB4 parity only).
+
+  NB6: «предельно отстоящий» через R/cos — близко к B.1, но отдельный CSV-этап.
+  NB7: ratio к среднему (master) — расширение B.2, strategy="master".
+  NB8: классификация по 24 базисам k=2 — ✅ совпадает с фазой C.
+
+  Parity-тесты: pytest.mark.notebook_parity — сравнение с CSV ноутбуков.
+  Theory-тесты: pytest.mark.theory — проверка канонического алгоритма на synthetic.
+
+================================================================================
+2. КЛЮЧЕВЫЕ РАСХОЖДЕНИЯ: ТЕОРИЯ vs НОУТБУКИ vs БИБЛИОТЕКА
+================================================================================
+
+2.1. Шаг A.1 (первая пара)
+  Теория:     глобальный argmin cos по всем парам (одна пара).
+  NB4:        для каждого i — argmin_j cos → trio_list[M×3].
+  SubspaceClusterer: глобальный argmin → ✅ теория.
+  → Канон: global_pair.py. NB4 → legacy.
+
+2.2. Шаги A.2–A.3 (центры через min R)
+  Теория = NB5 = SubspaceClusterer._select_initial_centers (после пары) → ✅
+
+2.3. Фаза B.1 (cosine второй вектор к каждому центру)
+  Теория:     явный шаг B.1.
+  NB6:        ~похожая логика (farthest vector), но как отдельный pipeline stage.
+  SubspaceClusterer: отсутствует → ❌
+  → Новый модуль subclass_seed.py.
+
+2.4. Фаза B.2 (max R, sequential)
+  Теория = NB7 (частично) = SubspaceClusterer loop → ✅ с оговоркой на B.1.
+
+2.5. Фиксированный базис k=2 для классификации
+  Теория (фаза C): Y_s (N×2).
+  NB6–8: экспорт 16 векторов = 8 пар.
+  SubspaceClusterer: базис не ограничен → нужен freeze/export k=2.
+
+2.6. Staged CSV pipeline vs единый fit()
+  Ноутбуки: промежуточные CSV между этапами (удобно для экспериментов).
+  Теория: единый алгоритм, stages — implementation detail.
+  → FursovPipeline.run_stage() для CSV; SubspaceClusterer.fit() для канона in-memory.
+
+2.7. Preprocessing и vectorization
+  Только в NB1–3. Не часть теории кластеризации, но нужны для end-to-end pipeline.
+
+2.8. Математическое ядро
+  final_step() из ноутбуков ≡ conjugate_criterion() — ✅
+  cos_criterea() из NB4 содержит баг (norm первого вектора) — не воспроизводить.
+
+================================================================================
+3. ЦЕЛЕВАЯ СТРУКТУРА ПАКЕТА
+================================================================================
+
+subspace_conjugacy/
+├── __init__.py
+├── pyproject.toml
+├── config/
+│   └── dataset.py
+├── preprocessing/                  # NB1–2, вне теории кластеризации
+│   ├── resize.py
+│   ├── centering.py
+│   └── normalization.py
+├── features/                       # NB3
+│   ├── vectorization.py
+│   └── extraction.py
+├── core/
+│   └── metrics.py                  # [ЕСТЬ] R(x,Y), cosine — ядро теории
+├── algorithms/
+│   ├── global_pair.py              # Теория A.1
+│   ├── reference_centers.py        # Теория A.2–A.3  (NB5)
+│   ├── subclass_seed.py            # Теория B.1       (NB6 ~)
+│   ├── subclass_growth.py          # Теория B.2       (NB7 ~)
+│   ├── subclass_export.py          # Экспорт Y_s (N×2) для classifier
+│   ├── fursov_clusterer.py         # Фасад: A.1→A.3→B.1→B.2
+│   └── legacy/
+│       ├── per_vector_pairs.py     # NB4 trio_list (parity only)
+│       └── notebook_pipeline.py    # NB4→5→6→7 staged CSV (parity only)
+├── models/
+│   ├── base.py                     # [ЕСТЬ]
+│   ├── clusterer.py                # → thin wrapper над fursov_clusterer
+│   └── classifier.py               # [ЕСТЬ, РАСШИРИТЬ] — теория C / NB8
+├── io/
+│   ├── persistence.py              # [ЕСТЬ]
+│   └── vectors.py                  # CSV NB3–7
+├── pipeline/
+│   ├── stages.py
+│   └── fursov_pipeline.py
+├── evaluation/
+│   └── metrics.py
+└── utils/
+    └── validation.py               # [ЕСТЬ]
+
+tests/
+├── conftest.py
+├── test_metrics.py
+├── test_vectorization.py
+├── test_algorithms/
+│   ├── test_global_pair.py         # теория A.1
+│   ├── test_reference_centers.py   # теория A.2–A.3
+│   ├── test_subclass_seed.py       # теория B.1
+│   ├── test_subclass_growth.py     # теория B.2
+│   └── test_fursov_clusterer.py    # end-to-end канон
+├── test_classifier.py
+├── test_theory/                    # synthetic, канон
+│   └── test_clustering_theory.py
+└── test_parity/                    # CSV ноутбуков
+    ├── test_nb4_legacy.py
+    └── test_glioma_notebook_pipeline.py
+
+================================================================================
+4. ПЛАН ПО ФАЗАМ (ПРОМПТЫ)
+================================================================================
+
+--------------------------------------------------------------------------------
+ФАЗА 0 — ИНФРАСТРУКТУРА ПАКЕТА
+Приоритет: P0 | Срок: 1–2 дня | Блокирует: всё остальное
+Теория: —
+--------------------------------------------------------------------------------
+
+ПРОМПТ ДЛЯ АГЕНТА:
+  Настрой инфраструктуру Python-пакета subspace_conjugacy в c:\mission_6states.
+  Создай pyproject.toml, requirements.txt, __init__.py с публичным API.
+  Добавь config/dataset.py с DatasetConfig (замена hardcoded macOS paths).
+  Перенеси блоки if __name__ == "__main__" из модулей в tests/.
+  Настрой pytest + conftest.py. Добавь pytest markers: theory, notebook_parity.
+
+ЗАДАЧИ:
+  [ ] pyproject.toml (numpy, opencv-python-headless, pillow, scikit-learn)
+  [ ] requirements.txt
+  [ ] subspace_conjugacy/__init__.py — экспорт FursovClusterer, SubspaceConjugacyClassifier,
+      conjugate_criterion, cosine_similarity_matrix
+  [ ] config/dataset.py — DatasetConfig (root, classes, n_subclasses=8, subclass_factor=2, paths)
+  [ ] tests/conftest.py — small_random_vectors, synthetic_image_256
+  [ ] pytest.ini: markers theory, notebook_parity
+
+КРИТЕРИИ ПРИЁМКИ:
+  - pip install -e . && import subspace_conjugacy
+  - DatasetConfig работает с Windows-путями
+  - pytest --collect-only без ошибок
+
+--------------------------------------------------------------------------------
+ФАЗА 1 — PREPROCESSING (NB1–2)
+Приоритет: P2 | Срок: 2–3 дня | Теория: —
+--------------------------------------------------------------------------------
+
+(Без изменений по содержанию — см. предыдущую версию плана.)
+
+ПРОМПТ: preprocessing/ из NB1–2, ImagePreprocessor, DatasetConfig, unit-тests.
+Модули: resize.py, normalization.py, centering.py.
+СВЯЗЬ: NB1, NB2.
+
+--------------------------------------------------------------------------------
+ФАЗА 2 — FEATURE EXTRACTION (NB3)
+Приоритет: P0 | Срок: 1–2 дня | Теория: подготовка входа X для фазы A
+--------------------------------------------------------------------------------
+
+(Без изменений по содержанию — vectorization + io/vectors.py.)
+
+ПРОМПТ: features/vectorization.py, extraction.py, io/vectors.py.
+vectorize_horizontal → flatten (65536,), CSV roundtrip.
+СВЯЗЬ: NB3.
+
+--------------------------------------------------------------------------------
+ФАЗА 3 — АЛГОРИТМЫ КЛАСТЕРИЗАЦИИ (ТЕОРИЯ A–B + LEGACY NB4–7)
+Приоритет: P1 | Срок: 5–6 дней | Зависит от: фаза 0, 2
+--------------------------------------------------------------------------------
+
+Общий промпт для фазы 3:
+  Реализуй КАНОНИЧЕСКИЙ алгоритм кластеризации (секция 1 THEORY ALIGNMENT)
+  в subspace_conjugacy/algorithms/. Используй conjugate_criterion и
+  cosine_similarity_matrix из core/metrics.py.
+  Legacy-модули для NB4–7 — в algorithms/legacy/ для parity-тестов.
+  SubspaceClusterer → фасад FursovClusterer.
+
+--- ФАЗА 3.1: GlobalMinCosinePairFinder (ТЕОРИЯ A.1) ---
+
+ПРОМПТ:
+  Реализуй algorithms/global_pair.py — канонический шаг A.1.
+
+АЛГОРИТМ (КАНОН):
+  sim = cosine_similarity_matrix(X)  # (M, M)
+  mask diagonal → inf
+  (i, j) = argmin sim
+  return (i, j, sim[i,j])
+
+API:
+  class GlobalMinCosinePairFinder:
+      def fit(self, X: np.ndarray) -> tuple[int, int, float]: ...
+      @property
+      def pair_indices_(self) -> tuple[int, int]: ...
+
+КРИТЕРИИ:
+  - i != j; sim[i,j] <= sim[k,l] для всех k≠l
+  - На synthetic: воспроизводимый результат при fixed seed
+
+LEGACY (parity, НЕ канон):
+  algorithms/legacy/per_vector_pairs.py — NB4 trio_list (M×3)
+  pytest.mark.notebook_parity
+
+ИСТОЧНИК КАНОНА: теория A.1
+ИСТОЧНИК LEGACY: 4_1_Fursov_vector_processing (for *).ipynb
+
+--- ФАЗА 3.2: ReferenceCenterBuilder (ТЕОРИЯ A.2–A.3, NB5) ---
+
+ПРОМПТ:
+  Реализуй algorithms/reference_centers.py.
+
+АЛГОРИТМ (КАНОН = NB5):
+  Вход: X, initial_pair=(idx1, idx2) из GlobalMinCosinePairFinder
+  centers = [idx1, idx2]
+  while len(centers) < n_subclasses:
+      Y = X[centers].T                    # (N, k), k растёт
+      remaining = indices not in centers
+      R_values = conjugate_criterion(X[remaining], Y)
+      new_center = remaining[argmin(R_values)]
+      centers.append(new_center)
+  return centers  # length n_subclasses
+
+API:
+  class ReferenceCenterBuilder:
+      def __init__(self, n_subclasses=8, reg_param=1e-8): ...
+      def fit(self, X, initial_pair: tuple[int,int]) -> np.ndarray: ...
+
+КРИТЕРИИ:
+  - len(centers_) == n_subclasses
+  - Y при каждой итерации включает ВСЕ предыдущие центры
+  - notebook_parity: compare с glioma_class_core_vectors.csv (может отличаться
+    если NB5 использовал пару из NB4, а не global pair)
+
+ИСТОЧНИК: теория A.2–A.3, NB5
+
+--- ФАЗА 3.3: CosineSecondVectorAttacher (ТЕОРИЯ B.1, NB6 ~) ---
+
+ПРОМПТ:
+  Реализуй algorithms/subclass_seed.py — канонический шаг B.1.
+
+АЛГОРИТМ (КАНОН):
+  Вход: X, center_indices (n_subclasses,)
+  remaining = all indices \ center_indices
+  pairs = []
+  for c in center_indices:
+      sims = cosine_similarity(X[remaining], X[c])  # cos с центром
+      v_idx = remaining[argmin(sims)]              # min cos = max «непохожесть»
+      pairs.append((c, v_idx))
+      remaining.remove(v_idx)
+  return pairs  # shape (n_subclasses, 2)
+
+API:
+  class CosineSecondVectorAttacher:
+      def fit(self, X, center_indices) -> np.ndarray: ...
+      # pairs_ shape (S, 2)
+
+КРИТЕРИИ:
+  - Каждый центр получает ровно один второй вектор
+  - Все 2×S индексов уникальны
+  - notebook_parity (~): glioma_new_classes.csv может отличаться
+
+ИСТОЧНИК: теория B.1; NB6 — reference
+
+--- ФАЗА 3.4: ConjugacyClusterGrowth (ТЕОРИЯ B.2, NB7 ~) ---
+
+ПРОМПТ:
+  Реализуй algorithms/subclass_growth.py — канонический шаг B.2.
+
+АЛГОРИТМ (КАНОН):
+  Вход: X, initial_pairs (S×2) из CosineSecondVectorAttacher
+  Y_bases[s] = X[pairs[s]].T   # (N, 2) каждый
+  labels[all paired indices] = assigned
+  remaining = unassigned indices
+  while remaining:
+      build R_matrix shape (len(remaining), S):
+          R_matrix[r,s] = conjugate_criterion(X[remaining[r]], Y_bases[s])
+      (r*, s*) = argmax R_matrix
+      assign remaining[r*] to s*, append vector to Y_bases[s*]  # basis grows
+      remove from remaining
+  return labels_, Y_bases
+
+  Опции:
+    freeze_basis_at: int | None = 2
+      если 2 — после fit оставить только первые 2 столбца Y_s для export/classifier
+    strategy: "default" | "master"
+      master (NB7): ratio R(x,s)/mean(R) при отборе представителей
+
+API:
+  class ConjugacyClusterGrowth:
+      def fit(self, X, pairs) -> tuple[np.ndarray, list[np.ndarray]]: ...
+
+КРИТЕРИИ:
+  - Ровно один вектор assign за итерацию while
+  - Все M векторов получают label
+  - theory test: на synthetic кластерах sanity check
+
+ИСТОЧНИК: теория B.2; NB7 — reference (strategy master)
+
+--- ФАЗА 3.5: FursovClusterer — фасад (ТЕОРИЯ A+B) ---
+
+ПРОМПТ:
+  algorithms/fursov_clusterer.py + refactor models/clusterer.py.
+
+API:
+  class FursovClusterer:
+      def __init__(self, n_subclasses=8, reg_param=1e-8,
+                   freeze_basis_at=2, growth_strategy="default"): ...
+      def fit(self, X) -> "FursovClusterer":
+          # A.1 GlobalMinCosinePairFinder
+          # A.2–A.3 ReferenceCenterBuilder
+          # B.1 CosineSecondVectorAttacher
+          # B.2 ConjugacyClusterGrowth
+      @property
+      def subspaces_(self) -> list[np.ndarray]:  # S matrices (N, 2)
+      @property
+      def labels_(self) -> np.ndarray: ...
+
+  SubspaceClusterer = FursovClusterer  # alias или thin wrapper
+
+КРИТЕРИИ:
+  - fit() на (M=100, N=512) synthetic завершается без ошибок
+  - len(subspaces_) == n_subclasses, each Y.shape[1] == freeze_basis_at
+
+--- ФАЗА 3.6: SubclassExport + Legacy notebook pipeline ---
+
+ПРОМПТ:
+  algorithms/subclass_export.py — экспорт Y_s в формат 8_{class}_subclasses_vectors.csv
+  algorithms/legacy/notebook_pipeline.py — staged NB4→NB5→NB6→NB7 для parity
+
+--- ФАЗА 3.7: Parity & theory tests ---
+
+ПРОМПТ:
+  tests/test_theory/test_clustering_theory.py — synthetic, проверка A.1, A.2, B.1, B.2
+  tests/test_parity/test_glioma_notebook_pipeline.py — CSV ноутбуков (skipif no data)
+
+--------------------------------------------------------------------------------
+ФАЗА 4 — CLASSIFIER & EVALUATION (ТЕОРИЯ C, NB8)
+Приоритет: P1 | Срок: 2 дня | Зависит от: фаза 3.5–3.6
+--------------------------------------------------------------------------------
+
+ПРОМПТ:
+  Расширь classifier.py и evaluation/metrics.py по теории C и NB8.
+
+АЛГОРИТМ (КАНОН = NB8):
+  24 базиса Y_s (N×2), flat argmax R, subclass→class mapping.
+  proportion = best_R / mean(other_R) - 1
+
+API (дополнения):
+  fit_from_subclass_bases(subspaces_by_class)
+  predict_subclass(X) → 0..23
+  predict_r_matrix_flat(X) → (M, 24)
+  predict_confidence_ratio(X)
+
+КРИТЕРИИ:
+  - accuracy >= 0.70 на test75 (notebook parity, допуск ±0.02 от 0.72)
+
+ИСТОЧНИК: теория C, NB8
+
+--------------------------------------------------------------------------------
+ФАЗА 5 — IO & PERSISTENCE
+Приоритет: P2 | Срок: 1 день
+--------------------------------------------------------------------------------
+
+Дополнить io/vectors.py:
+
+  | CSV ноутбука                         | Функция                        | Канон/Legacy |
+  |--------------------------------------|--------------------------------|--------------|
+  | {class}_horizontal_vector.csv        | load/save_vectors_csv          | NB3          |
+  | {class}_class_first_and_second_*.csv | load_initial_pair_indices      | Legacy NB4–5 |
+  | {class}_class_core_vectors.csv       | load_center_indices            | A.2–A.3      |
+  | {class}_new_classes.csv              | load_subclass_pairs            | B.1 ~ NB6    |
+  | 8_{class}_subclasses_vectors.csv     | load_subclass_bases            | Export       |
+
+  save_pipeline_artifact / load_pretrained_classifier
+
+--------------------------------------------------------------------------------
+ФАЗА 6 — PIPELINE ORCHESTRATOR
+Приоритет: P2 | Срок: 2 дня
+--------------------------------------------------------------------------------
+
+FursovPipeline.run_stage():
+
+  | stage               | Теория    | Модуль                  | Ноутбук |
+  |---------------------|-----------|-------------------------|---------|
+  | resize              | —         | preprocessing           | NB1     |
+  | center              | —         | preprocessing           | NB2     |
+  | vectorize           | вход X    | features                | NB3     |
+  | global_pair         | A.1       | global_pair             | —       |
+  | reference_centers   | A.2–A.3   | reference_centers       | NB5     |
+  | subclass_seed       | B.1       | subclass_seed           | NB6     |
+  | subclass_growth     | B.2       | subclass_growth         | NB7     |
+  | cluster             | A+B       | fursov_clusterer        | —       |
+  | export_subspaces    | export    | subclass_export         | NB6–7   |
+  | classify            | C         | classifier              | NB8     |
+  | legacy_notebook     | —         | legacy/notebook_pipeline| NB4–7   |
+
+  run_class(class_name): vectorize → cluster (канон) → export_subspaces
+  run_all_classes(): для glioma, meningioma, pituitary
+  classify_test(): accuracy metrics
+
+--------------------------------------------------------------------------------
+ФАЗА 7 — THIN NOTEBOOK WRAPPERS
+Приоритет: P3 | Срок: 1 день
+--------------------------------------------------------------------------------
+
+  config = DatasetConfig(root=r"C:\mission_6states\data")
+  pipeline = FursovPipeline(config)
+
+  | Ноутбук | Рекомендуемый вызов                          | Примечание        |
+  |---------|----------------------------------------------|-------------------|
+  | 1       | pipeline.run_stage("resize")                 |                   |
+  | 2       | pipeline.run_stage("center")                 |                   |
+  | 3       | pipeline.run_stage("vectorize")            |                   |
+  | 4       | pipeline.run_stage("legacy_notebook", step=4)| parity, не канон  |
+  | 5       | run_stage("reference_centers") или legacy    |                   |
+  | 6       | run_stage("subclass_seed") или legacy        |                   |
+  | 7       | run_stage("subclass_growth") или legacy      |                   |
+  | 8       | pipeline.run_stage("classify")               | теория C          |
+
+  Новые thin notebooks могут вызывать pipeline.run_stage("cluster") — канон A+B.
+
+--------------------------------------------------------------------------------
+ФАЗА 8 — ТЕСТЫ & PARITY
+Приоритет: P3 | Срок: 3–4 дня
+--------------------------------------------------------------------------------
+
+Два слоя тестов:
+
+  @pytest.mark.theory (канон, synthetic):
+    - A.1: global pair = argmin всех пар
+    - A.2: 3-й центр = argmin R против Y(N×2)
+    - A.3: k-й центр использует Y из (k-1) центров
+    - B.1: каждый центр + min-cos второй вектор
+    - B.2: sequential global argmax R, one vector per step
+    - C: flat 24-way argmax
+
+  @pytest.mark.notebook_parity (CSV, skipif no dataset):
+    - legacy NB4 trio_list
+    - NB5 center indices (ожидать расхождение если pair ≠ global)
+    - NB6/NB7 CSV
+    - NB8 accuracy ≥ 0.70
+
+  Property: R ∈ [0,1], cosine diagonal = 1
+
+  Coverage target: ≥ 70%
+
+================================================================================
+5. РЕКОМЕНДУЕМЫЙ ПОРЯДОК ВЫПОЛНЕНИЯ
+================================================================================
+
+  0 (infra)
+    ↓
+  2 (vectorization + io/vectors)
+    ↓
+  3.1 global_pair (теория A.1)
+    ↓
+  3.2 reference_centers (A.2–A.3)
+    ↓
+  3.3 subclass_seed (B.1)
+    ↓
+  3.4 subclass_growth (B.2)
+    ↓
+  3.5 fursov_clusterer (фасад)
+    ↓
+  3.6 export + legacy/notebook_pipeline
+    ↓
+  4 (classifier — теория C)
+    ↓
+  8 theory tests (synthetic)          ← подтверждение канона
+    ↓
+  8 parity tests (CSV ноутбуков)        ← legacy совместимость
+    ↓
+  1 (preprocessing)
+    ↓
+  5 (io extensions)
+    ↓
+  6 (pipeline orchestrator)
+    ↓
+  7 (thin notebooks)
+
+================================================================================
+6. ТЕХНИЧЕСКИЙ ДОЛГ — ИСПРАВИТЬ ПРИ РЕФАКТОРИНГЕ
+================================================================================
+
+  1. Канон (теория) — единственный путь в FursovClusterer и FursovPipeline.run_class().
+     Legacy NB4–7 — только через run_stage("legacy_notebook") и test_parity.
+
+  2. Убрать duplicate conjugate_criterion в clusterer.py / classifier.py.
+
+  3. Не воспроизводить баг NB4 (vector_norm(first_reference)).
+
+  4. int(norm) в ноутбуках → float64 в библиотеке.
+
+  5. reg_param через config/constructor.
+
+  6. logging вместо print.
+
+  7. Type hints Python 3.10+.
+
+  8. NumPy docstrings.
+
+  9. freeze_basis_at=2 для export в classifier (теория C требует k=2).
+
+  10. Документировать в docstring каждого algorithm-модуля ссылку на шаг теории
+      (A.1, A.2, B.1, ...).
+
+================================================================================
+7. ОЦЕНКА СРОКОВ
+================================================================================
+
+  | Фаза | Описание                         | Приоритет | Срок     |
+  |------|----------------------------------|-----------|----------|
+  | 0    | Инфраструктура                   | P0        | 1–2 дня  |
+  | 1    | Preprocessing                    | P2        | 2–3 дня  |
+  | 2    | Vectorization + CSV IO           | P0        | 1–2 дня  |
+  | 3    | Algorithms (теория A–B + legacy) | P1        | 5–6 дней |
+  | 4    | Classifier (теория C)            | P1        | 2 дня    |
+  | 5    | IO extensions                    | P2        | 1 день   |
+  | 6    | Pipeline orchestrator            | P2        | 2 дня    |
+  | 7    | Thin notebooks                   | P3        | 1 день   |
+  | 8    | Theory + parity tests            | P3        | 3–4 дня  |
+
+  ИТОГО: ~3–4 недели.
+
+================================================================================
+8. ШАБЛОН ПРОМПТА ДЛЯ СЕССИИ
+================================================================================
+
+  Ты Senior Python developer. Проект: c:\mission_6states.
+  Библиотека: subspace_conjugacy. План: refactoring_plan.txt, ФАЗА N.
+
+  КАНОН: секция «1. THEORY ALIGNMENT» — source of truth для алгоритмов
+  кластеризации. Legacy ноутбуки — только для parity (pytest.mark.notebook_parity).
+
+  Задача: [описание из секции фазы N].
+
+  Требования:
+  - Реализуй КАНОН из секции 1, если фаза помечена теорией A/B/C
+  - Legacy код — только в algorithms/legacy/
+  - conjugate_criterion, cosine_similarity_matrix из core.metrics
+  - DatasetConfig для путей
+  - pytest: @pytest.mark.theory для канона
+  - Критерии приёмки — из refactoring_plan.txt
+
+  Исходные ноутбуки (reference): [список].
+  Не меняй unrelated code.
+
+================================================================================
+КОНЕЦ ДОКУМЕНТА
+================================================================================

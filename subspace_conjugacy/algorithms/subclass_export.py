@@ -1,0 +1,368 @@
+"""Subclass Export: экспорт базисов подклассов в формат CSV ноутбуков.
+
+Этот модуль предоставляет функции для экспорта результатов кластеризации
+(базисов подпространств Y_s) в формат, совместимый с NB6-7 и NB8.
+
+Формат файла 8_{class}_subclasses_vectors.csv:
+  - Каждые k строк (обычно k=2) соответствуют базису одного подкласса
+  - Строки [2*s : 2*s+2] — базис подкласса s
+  - Всего S*k строк для S подклассов
+  - Каждая строка — вектор размерности N (обычно 65536)
+
+Связь с другими модулями:
+  - Входные данные: FursovClusterer.subspaces_ (список матриц N×k)
+  - Выходные данные: CSV для SubspaceConjugacyClassifier (фаза C, NB8)
+  - IO функции: save_subclass_bases, load_subclass_bases из io/vectors.py
+"""
+
+from pathlib import Path
+from typing import List, Optional, Union
+import numpy as np
+
+
+def flatten_subspace_bases(
+    subspaces: List[np.ndarray],
+    expected_basis_size: Optional[int] = None,
+) -> np.ndarray:
+    """Преобразует список базисов Y_s в плоскую матрицу для экспорта в CSV.
+
+    Parameters
+    ----------
+    subspaces : list[np.ndarray]
+        Список из S базисных матриц размерности (N, k_s).
+        Обычно k_s = 2 (freeze_basis_at=2 из ConjugacyClusterGrowth).
+    expected_basis_size : int or None, default=None
+        Ожидаемое количество векторов в базисе (обычно 2).
+        Если задано, проверяется, что все базисы имеют эту размерность.
+
+    Returns
+    -------
+    flattened : np.ndarray
+        Плоская матрица размерности (S*k, N), где строки идут последовательно:
+        [Y_0[0], Y_0[1], Y_1[0], Y_1[1], ..., Y_{S-1}[0], Y_{S-1}[1]]
+
+    Raises
+    ------
+    ValueError
+        Если базисы имеют разную размерность признаков N или разное k.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> # 3 подкласса × 2 вектора
+    >>> Y_0 = np.random.randn(256, 2)
+    >>> Y_1 = np.random.randn(256, 2)
+    >>> Y_2 = np.random.randn(256, 2)
+    >>> subspaces = [Y_0, Y_1, Y_2]
+    >>>
+    >>> flat = flatten_subspace_bases(subspaces, expected_basis_size=2)
+    >>> flat.shape
+    (6, 256)  # 3*2 строк, 256 признаков
+    >>> # Проверка: первые 2 строки = Y_0.T
+    >>> np.allclose(flat[0:2], Y_0.T)
+    True
+
+    Notes
+    -----
+    Формат совместим с NB7:
+    - Каждый базис Y_s (N, k) транспонируется в (k, N)
+    - Строки всех базисов конкатенируются вертикально
+    - Итоговый CSV содержит S*k строк
+    """
+    if not subspaces:
+        raise ValueError("Список подпространств пуст.")
+
+    n_subclasses = len(subspaces)
+    n_features = subspaces[0].shape[0]
+    basis_sizes = [Y.shape[1] for Y in subspaces]
+
+    # Проверка консистентности размерности признаков
+    if not all(Y.shape[0] == n_features for Y in subspaces):
+        shapes = [Y.shape for Y in subspaces]
+        raise ValueError(
+            f"Все базисы должны иметь одинаковую размерность признаков N. "
+            f"Получено: {shapes}"
+        )
+
+    # Проверка консистентности размера базиса
+    if expected_basis_size is not None:
+        invalid = [
+            (i, Y.shape[1])
+            for i, Y in enumerate(subspaces)
+            if Y.shape[1] != expected_basis_size
+        ]
+        if invalid:
+            raise ValueError(
+                f"Ожидалось {expected_basis_size} векторов в каждом базисе. "
+                f"Неверные базисы: {invalid}"
+            )
+    else:
+        # Без явного expected_basis_size: все базисы должны иметь одинаковый k
+        if len(set(basis_sizes)) > 1:
+            raise ValueError(
+                f"Все базисы должны иметь одинаковое количество векторов k. "
+                f"Получено: {basis_sizes}"
+            )
+
+    # Транспонируем каждый базис (N, k) → (k, N) и конкатенируем
+    transposed_bases = [Y.T for Y in subspaces]  # Каждый теперь (k, N)
+    flattened = np.vstack(transposed_bases)  # (S*k, N)
+
+    return flattened
+
+
+def unflatten_subspace_bases(
+    flattened: np.ndarray,
+    n_subclasses: int,
+    basis_size: int = 2,
+) -> List[np.ndarray]:
+    """Обратное преобразование: плоская матрица → список базисов Y_s.
+
+    Parameters
+    ----------
+    flattened : np.ndarray
+        Плоская матрица размерности (S*k, N).
+    n_subclasses : int
+        Количество подклассов S.
+    basis_size : int, default=2
+        Количество векторов в базисе (k).
+
+    Returns
+    -------
+    subspaces : list[np.ndarray]
+        Список из S базисных матриц размерности (N, k).
+
+    Raises
+    ------
+    ValueError
+        Если размерность flattened не соответствует S*k строкам.
+
+    Examples
+    --------
+    >>> flat = np.random.randn(16, 65536)  # 8 подклассов × 2 вектора
+    >>> subspaces = unflatten_subspace_bases(flat, n_subclasses=8, basis_size=2)
+    >>> len(subspaces)
+    8
+    >>> subspaces[0].shape
+    (65536, 2)
+    """
+    expected_rows = n_subclasses * basis_size
+
+    if flattened.shape[0] != expected_rows:
+        raise ValueError(
+            f"Ожидалось {expected_rows} строк (n_subclasses={n_subclasses}, "
+            f"basis_size={basis_size}), получено {flattened.shape[0]}."
+        )
+
+    n_features = flattened.shape[1]
+    subspaces = []
+
+    for s in range(n_subclasses):
+        start_row = s * basis_size
+        end_row = start_row + basis_size
+        Y_s_transposed = flattened[start_row:end_row]  # (k, N)
+        Y_s = Y_s_transposed.T  # (N, k)
+        subspaces.append(Y_s)
+
+    return subspaces
+
+
+def export_clusterer_bases(
+    clusterer,
+    output_path: Union[str, Path],
+    expected_basis_size: int = 2,
+) -> Path:
+    """Экспортирует базисы подклассов из FursovClusterer в CSV файл.
+
+    Parameters
+    ----------
+    clusterer : FursovClusterer or similar
+        Обученный кластеризатор с атрибутом subspaces_ (list[np.ndarray]).
+    output_path : str or Path
+        Путь к выходному CSV файлу.
+    expected_basis_size : int, default=2
+        Ожидаемое количество векторов в базисе (для валидации).
+
+    Returns
+    -------
+    filepath : Path
+        Путь к сохранённому файлу.
+
+    Raises
+    ------
+    RuntimeError
+        Если кластеризатор не обучен (нет атрибута subspaces_).
+
+    Examples
+    --------
+    >>> from subspace_conjugacy import FursovClusterer
+    >>> import numpy as np
+    >>> X = np.random.randn(100, 256)
+    >>> clusterer = FursovClusterer(n_subclasses=8, freeze_basis_at=2)
+    >>> clusterer.fit(X)
+    >>>
+    >>> path = export_clusterer_bases(clusterer, "8_glioma_subclasses_vectors.csv")
+    >>> print(f"Базисы экспортированы в {path}")
+    """
+    if not hasattr(clusterer, "subspaces_") or clusterer.subspaces_ is None:
+        raise RuntimeError(
+            "Кластеризатор не обучен или не имеет атрибута subspaces_. "
+            "Вызовите fit(X) перед экспортом."
+        )
+
+    subspaces = clusterer.subspaces_
+    flattened = flatten_subspace_bases(subspaces, expected_basis_size=expected_basis_size)
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Сохранение в CSV через numpy
+    np.savetxt(output_path, flattened, delimiter=",", fmt="%.18e")
+
+    return output_path
+
+
+def export_all_classes(
+    clusterers_dict: dict,
+    output_dir: Union[str, Path],
+    n_subclasses: int = 8,
+) -> dict:
+    """Экспортирует базисы для всех классов в заданную директорию.
+
+    Parameters
+    ----------
+    clusterers_dict : dict
+        Словарь {class_name: FursovClusterer}, где каждый кластеризатор обучен.
+    output_dir : str or Path
+        Директория для сохранения CSV файлов.
+    n_subclasses : int, default=8
+        Количество подклассов (используется в имени файла).
+
+    Returns
+    -------
+    paths : dict
+        Словарь {class_name: Path} с путями к экспортированным файлам.
+
+    Examples
+    --------
+    >>> from subspace_conjugacy import FursovClusterer
+    >>> import numpy as np
+    >>>
+    >>> # Обучаем кластеризаторы для каждого класса
+    >>> X_glioma = np.random.randn(100, 256)
+    >>> X_meningioma = np.random.randn(100, 256)
+    >>> X_pituitary = np.random.randn(100, 256)
+    >>>
+    >>> clusterers = {
+    ...     "glioma": FursovClusterer(n_subclasses=8, freeze_basis_at=2).fit(X_glioma),
+    ...     "meningioma": FursovClusterer(n_subclasses=8, freeze_basis_at=2).fit(X_meningioma),
+    ...     "pituitary": FursovClusterer(n_subclasses=8, freeze_basis_at=2).fit(X_pituitary),
+    ... }
+    >>>
+    >>> paths = export_all_classes(clusterers, "data/subclass_bases")
+    >>> for class_name, path in paths.items():
+    ...     print(f"{class_name}: {path}")
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    paths = {}
+    for class_name, clusterer in clusterers_dict.items():
+        filename = f"{n_subclasses}_{class_name}_subclasses_vectors.csv"
+        output_path = output_dir / filename
+
+        paths[class_name] = export_clusterer_bases(
+            clusterer,
+            output_path,
+            expected_basis_size=2,
+        )
+
+    return paths
+
+
+if __name__ == "__main__":
+    print("=== Demonstration: subclass_export.py ===\n")
+    import numpy as np
+
+    # Симуляция обученного FursovClusterer
+    print("1. Creating synthetic bases (like after freeze_basis_at=2):")
+    n_subclasses = 8
+    n_features = 256
+    basis_size = 2
+
+    # Generate S bases (N, 2)
+    np.random.seed(42)
+    subspaces = [
+        np.random.randn(n_features, basis_size) for _ in range(n_subclasses)
+    ]
+    print(f"   Subclasses: {len(subspaces)}")
+    print(f"   Basis shape: {subspaces[0].shape}")
+
+    # 2. Flatten
+    print("\n2. Flatten: list of bases -> flat matrix:")
+    flattened = flatten_subspace_bases(subspaces, expected_basis_size=2)
+    print(f"   Flat matrix shape: {flattened.shape}")
+    print(f"   Expected: ({n_subclasses * basis_size}, {n_features})")
+
+    # 3. Unflatten
+    print("\n3. Unflatten: flat matrix -> list of bases:")
+    restored = unflatten_subspace_bases(flattened, n_subclasses=8, basis_size=2)
+    print(f"   Restored bases: {len(restored)}")
+    print(f"   First basis shape: {restored[0].shape}")
+
+    # Check roundtrip
+    all_match = all(
+        np.allclose(orig, rest) for orig, rest in zip(subspaces, restored)
+    )
+    print(f"   Roundtrip correct: {all_match}")
+
+    # 4. Export to CSV
+    print("\n4. Export to CSV file:")
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "8_test_subclasses_vectors.csv"
+
+        # Симуляция кластеризатора
+        class MockClusterer:
+            def __init__(self, subspaces_):
+                self.subspaces_ = subspaces_
+
+        mock_clusterer = MockClusterer(subspaces)
+        saved_path = export_clusterer_bases(mock_clusterer, output_path)
+        print(f"   Saved to: {saved_path}")
+        print(f"   File exists: {saved_path.exists()}")
+
+        # Check file size
+        file_lines = len(saved_path.read_text().strip().split("\n"))
+        print(f"   Lines in file: {file_lines} (expected {n_subclasses * basis_size})")
+
+        # 5. Load back
+        print("\n5. Loading from CSV:")
+        loaded = np.loadtxt(saved_path, delimiter=",")
+        print(f"   Loaded matrix shape: {loaded.shape}")
+        print(f"   Matches flattened: {np.allclose(flattened, loaded)}")
+
+    # 6. Error validation
+    print("\n6. Error validation:")
+    try:
+        # Different basis sizes
+        bad_subspaces = [
+            np.random.randn(n_features, 2),
+            np.random.randn(n_features, 3),  # <- wrong size
+        ]
+        flatten_subspace_bases(bad_subspaces, expected_basis_size=2)
+    except ValueError as e:
+        print(f"   [Error caught as expected]: {str(e)[:60]}...")
+
+    try:
+        # Different feature dimensions
+        bad_features = [
+            np.random.randn(256, 2),
+            np.random.randn(128, 2),  # <- wrong N
+        ]
+        flatten_subspace_bases(bad_features)
+    except ValueError as e:
+        print(f"   [Error caught as expected]: {str(e)[:60]}...")
+
+    print("\n[OK] All demonstration checks completed successfully!")

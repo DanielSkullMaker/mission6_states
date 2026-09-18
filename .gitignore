@@ -1,0 +1,63 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# === Packaging / build ===
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# === Virtual environments ===
+.venv/
+venv/
+env/
+ENV/
+
+# === Testing / coverage ===
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+
+# === Type checking / linting caches ===
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Project-specific: generated pipeline output ===
+# Обученные модели и экспортированные артефакты (main.py -> artifacts/,
+# io/persistence.py::save_model, io/vectors.py::save_pipeline_artifact).
+# Это воспроизводимый результат обучения, а не исходный код — не версионируем.
+artifacts/
+*.pkl
+
+# Промежуточные CSV-стадии пайплайна (NB3-NB7 / DatasetConfig.paths),
+# если DatasetConfig указывает внутрь репозитория:
+5_all_vectors/
+2_*_resize/
+2_test_resize/
+3_*_centered/
+3_test_centered/
+pipeline_metadata.json
+
+# === Project-specific: raw/derived dataset ===
+# Исходные и промежуточные изображения МРТ — большие бинарные файлы,
+# не предназначенные для версионирования в git. Датасет распространяется
+# отдельно от кода (см. README "Данные").
+datasets/
+data/
