@@ -4,9 +4,12 @@
 горизонтальную или вертикальную развёртку пикселей.
 """
 
+import logging
 from typing import List, Literal, Union
 import numpy as np
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 try:
     import cv2
@@ -71,6 +74,7 @@ def vectorize_image(
         # Эквивалентно: for col in range(W): for row in img: append(row[col])
         return img_gray.ravel(order="F")
     else:
+        logger.error("vectorize_image: неизвестный method '%s'.", method)
         raise ValueError(
             f"Unknown vectorization method: '{method}'. "
             f"Expected 'horizontal' or 'vertical'."
@@ -117,7 +121,9 @@ def vectorize_batch(
         images_list = images
 
     vectors = [vectorize_image(img, method=method) for img in images_list]
-    return np.vstack(vectors)
+    X = np.vstack(vectors)
+    logger.debug("vectorize_batch: %d изображений (method=%s) -> X.shape=%s.", len(images_list), method, X.shape)
+    return X
 
 
 def load_and_vectorize(
@@ -152,26 +158,32 @@ def load_and_vectorize(
     """
     path = Path(image_path)
     if not path.exists():
+        logger.error("load_and_vectorize: файл не найден '%s'.", path)
         raise FileNotFoundError(f"Image file not found: {path}")
 
     if backend == "cv2":
         if cv2 is None:
+            logger.error("load_and_vectorize: OpenCV не установлен.")
             raise ValueError(
                 "OpenCV (cv2) not available. Install: pip install opencv-python-headless"
             )
         img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         if img is None:
+            logger.error("load_and_vectorize: cv2 не смог декодировать '%s'.", path)
             raise ValueError(f"Failed to load image with cv2: {path}")
     elif backend == "pil":
         if Image is None:
+            logger.error("load_and_vectorize: Pillow не установлен.")
             raise ValueError(
                 "Pillow (PIL) not available. Install: pip install pillow"
             )
         img_pil = Image.open(path).convert("L")
         img = np.array(img_pil)
     else:
+        logger.error("load_and_vectorize: неизвестный backend '%s'.", backend)
         raise ValueError(f"Unknown backend: '{backend}'. Expected 'cv2' or 'pil'.")
 
+    logger.debug("load_and_vectorize: %s (backend=%s, method=%s).", path, backend, method)
     return vectorize_image(img, method=method)
 
 
@@ -205,11 +217,17 @@ def load_and_vectorize_batch(
     >>> X.shape
     (10, 65536)
     """
+    logger.info(
+        "load_and_vectorize_batch: старт, %d файлов (method=%s, backend=%s).",
+        len(image_paths), method, backend,
+    )
     vectors = [
         load_and_vectorize(path, method=method, backend=backend)
         for path in image_paths
     ]
-    return np.vstack(vectors)
+    X = np.vstack(vectors)
+    logger.info("load_and_vectorize_batch: готово, X.shape=%s.", X.shape)
+    return X
 
 
 def _ensure_grayscale(image: np.ndarray) -> np.ndarray:
@@ -240,70 +258,3 @@ def _ensure_grayscale(image: np.ndarray) -> np.ndarray:
         raise ValueError(
             f"Image must be 2D (H, W) or 3D (H, W, C), got {image.ndim}D array."
         )
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация векторизации изображений ===\n")
-    np.random.seed(42)
-
-    # 1. Векторизация одного изображения
-    print("1. Векторизация синтетического изображения 256×256:")
-    img_synthetic = np.random.randint(0, 256, (256, 256), dtype=np.uint8)
-
-    vec_hor = vectorize_image(img_synthetic, method="horizontal")
-    vec_ver = vectorize_image(img_synthetic, method="vertical")
-
-    print(f"   Horizontal vector: shape={vec_hor.shape}, dtype={vec_hor.dtype}")
-    print(f"   Vertical vector:   shape={vec_ver.shape}, dtype={vec_ver.dtype}")
-    print(f"   Первые 5 элементов (hor): {vec_hor[:5]}")
-    print(f"   Первые 5 элементов (ver): {vec_ver[:5]}")
-
-    # 2. Проверка эквивалентности с flatten/ravel
-    print("\n2. Проверка эквивалентности с numpy flatten/ravel:")
-    assert np.array_equal(vec_hor, img_synthetic.flatten()), "Horizontal должен совпадать с flatten()"
-    assert np.array_equal(vec_ver, img_synthetic.ravel(order='F')), "Vertical должен совпадать с ravel('F')"
-    print("   ✓ Horizontal == flatten()")
-    print("   ✓ Vertical == ravel(order='F')")
-
-    # 3. Векторизация батча
-    print("\n3. Векторизация батча из 5 изображений:")
-    imgs_batch = [np.random.randint(0, 256, (256, 256)) for _ in range(5)]
-    X_batch = vectorize_batch(imgs_batch, method="horizontal")
-    print(f"   Батч матрица: shape={X_batch.shape}, dtype={X_batch.dtype}")
-    print(f"   Первый вектор (первые 5 элементов): {X_batch[0, :5]}")
-
-    # 4. Обработка цветного изображения
-    print("\n4. Автоматическая конвертация цветного изображения в grayscale:")
-    img_color = np.random.randint(0, 256, (256, 256, 3), dtype=np.uint8)
-    vec_from_color = vectorize_image(img_color)
-    print(f"   Исходное: (256, 256, 3) → Вектор: {vec_from_color.shape}")
-
-    # 5. Бенчмарк: vectorize_image vs NB3 loops
-    print("\n5. Сравнение производительности с циклами из NB3:")
-    import time
-
-    # Наша реализация
-    start = time.perf_counter()
-    for _ in range(100):
-        _ = vectorize_image(img_synthetic, method="horizontal")
-    time_optimized = time.perf_counter() - start
-
-    # Эмуляция NB3 (двойной цикл)
-    def nb3_vectorization_horizontal(img):
-        vector = []
-        for line in img:
-            for pixel in line:
-                vector.append(pixel)
-        return np.array(vector)
-
-    start = time.perf_counter()
-    for _ in range(100):
-        _ = nb3_vectorization_horizontal(img_synthetic)
-    time_nb3 = time.perf_counter() - start
-
-    speedup = time_nb3 / time_optimized
-    print(f"   Оптимизированная версия: {time_optimized:.4f}s (100 итераций)")
-    print(f"   NB3 двойной цикл:        {time_nb3:.4f}s (100 итераций)")
-    print(f"   Ускорение: {speedup:.1f}x")
-
-    print("\n✓ Все демонстрационные проверки завершены!")

@@ -1,8 +1,11 @@
 """Высокоуровневые функции для извлечения признаков из датасета."""
 
+import logging
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.config import DatasetConfig
@@ -54,6 +57,10 @@ def extract_class_vectors(
     (100, 65536)
     """
     image_paths = config.get_image_paths(class_name, stage, count)
+    logger.info(
+        "extract_class_vectors: класс=%s, stage=%s, %d изображений.",
+        class_name, stage, len(image_paths),
+    )
     return load_and_vectorize_batch(image_paths, method=method)
 
 
@@ -94,6 +101,7 @@ def extract_all_classes(
     if include_test:
         classes_to_extract.append("test")
 
+    logger.info("extract_all_classes: %d классов -> %s.", len(classes_to_extract), classes_to_extract)
     for cls in classes_to_extract:
         vectors_dict[cls] = extract_class_vectors(
             config, cls, stage=stage, method=method
@@ -144,37 +152,6 @@ def extract_training_data(
 
     X = np.vstack(X_list)
     y = np.concatenate(y_list)
+    logger.info("extract_training_data: X.shape=%s, y.shape=%s.", X.shape, y.shape)
 
     return X, y
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация extraction.py ===\n")
-
-    if DatasetConfig is None:
-        print("⚠ DatasetConfig недоступен. Установите пакет: pip install -e .")
-        exit(1)
-
-    # Используем temp директорию для демонстрации
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config = DatasetConfig(root=tmpdir)
-
-        print("1. Конфигурация датасета:")
-        print(f"   Root: {config.root}")
-        print(f"   Classes: {config.classes}")
-        print(f"   N features: {config.n_features}")
-
-        print("\n2. Структура API:")
-        print("   extract_class_vectors(config, 'glioma') → (100, 65536)")
-        print("   extract_all_classes(config) → {'glioma': X, 'meningioma': X, ...}")
-        print("   extract_training_data(config) → (X, y)")
-
-        print("\n3. Пример использования (требует датасет):")
-        print("   ```python")
-        print("   config = DatasetConfig(root='data')")
-        print("   X_train, y_train = extract_training_data(config)")
-        print("   X_test = extract_class_vectors(config, 'test')")
-        print("   ```")
-
-        print("\n✓ Демонстрация завершена!")

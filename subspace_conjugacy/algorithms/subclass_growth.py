@@ -19,15 +19,30 @@
 
 Связь с ноутбуками:
   NB7 (7_2_Fursov_fulfilling_new_subclasses): схожая логика, но с ratio к среднему.
-  strategy="master" воспроизводит NB7 поведение.
+
+  ⚠ strategy="master" — это КАНОН-СОВМЕСТИМАЯ АППРОКСИМАЦИЯ идеи NB7
+  (ratio R(x,s)/mean(R(x, others)) при отборе), а НЕ побитовая реплика NB7.
+  Настоящий NB7 (7_2_..., cell 11) на каждом проходе ``for idea in
+  range(count_num)`` назначает КАЖДОМУ подклассу СВОЙ лучший вектор
+  одновременно (S присвоений за один "idea"-шаг, без учёта векторов,
+  занятых другими подклассами в этом же шаге). Здесь же, чтобы не нарушать
+  инвариант канона B.2 ("строго по одному вектору за итерацию" — см. выше),
+  _find_argmax_master ищет ОДНО глобальное (x*, s*) по ratio среди ВСЕХ
+  remaining×подклассов за одну итерацию while. Порядок и итоговое
+  распределение векторов по подклассам поэтому могут отличаться от
+  настоящего NB7 — за побитовым воспроизведением NB7 обращайтесь к
+  algorithms/legacy/notebook_pipeline.py, а не к strategy="master".
 
 Связь с другими модулями:
   Требует pairs из CosineSecondVectorAttacher (фаза B.1).
   Выход используется в FursovClusterer и экспортируется для classifier.
 """
 
+import logging
 from typing import List, Literal, Optional, Tuple
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.core.metrics import conjugate_criterion
@@ -63,7 +78,9 @@ class ConjugacyClusterGrowth:
     strategy : {"default", "master"}, default="default"
         Стратегия выбора вектора:
         - "default": простой argmax R(x, Y_s)
-        - "master": ratio R(x, s*) / mean(R(x, others)) из NB7
+        - "master": ratio R(x, s*) / mean(R(x, others)) — канон-совместимая
+          аппроксимация идеи NB7 (см. предупреждение в docstring модуля),
+          НЕ побитовая реплика NB7
     reg_param : float, default=1e-8
         Параметр регуляризации Тихонова для (Y^T Y)^{-1}.
 
@@ -175,9 +192,19 @@ class ConjugacyClusterGrowth:
 
         # Оставшиеся векторы для распределения
         remaining = np.where(labels == -1)[0].tolist()
+        total_to_assign = len(remaining)
+        logger.info(
+            "ConjugacyClusterGrowth.fit: B.2 старт (strategy=%s), %d подклассов, "
+            "%d векторов уже в парах, %d осталось распределить.",
+            self.strategy, n_subclasses, n_samples - total_to_assign, total_to_assign,
+        )
 
         # Основной цикл: присоединяем по одному вектору
         iteration = 0
+        # Логируем прогресс на INFO примерно раз в 10% итераций, чтобы не
+        # заваливать вывод на больших датасетах — детальный разбор каждой
+        # итерации доступен на DEBUG.
+        progress_step = max(1, total_to_assign // 10)
         while remaining:
             # 1. Вычисляем R_matrix (len(remaining), n_subclasses)
             R_matrix = self._compute_conjugacy_matrix(
@@ -193,6 +220,13 @@ class ConjugacyClusterGrowth:
             # 3. Присоединяем вектор к подклассу
             vector_idx = remaining[r_idx]
             labels[vector_idx] = s_idx
+            logger.debug(
+                "ConjugacyClusterGrowth.fit: итерация %d/%d — вектор %d -> "
+                "подкласс %d (R=%.6f, базис Y теперь k=%d, remaining=%d).",
+                iteration + 1, total_to_assign, vector_idx, s_idx,
+                float(R_matrix[r_idx, s_idx]), Y_bases[s_idx].shape[1] + 1,
+                len(remaining) - 1,
+            )
 
             # 4. Обновляем базис подкласса
             Y_bases[s_idx] = self._append_to_basis(
@@ -203,14 +237,28 @@ class ConjugacyClusterGrowth:
             remaining.pop(r_idx)
             iteration += 1
 
+            if iteration % progress_step == 0 or not remaining:
+                logger.info(
+                    "ConjugacyClusterGrowth.fit: прогресс %d/%d векторов распределено.",
+                    iteration, total_to_assign,
+                )
+
         # Финализация: freeze базисов если требуется
         if self.freeze_basis_at is not None:
             Y_bases = [Y[:, :self.freeze_basis_at] for Y in Y_bases]
+            logger.debug(
+                "ConjugacyClusterGrowth.fit: базисы заморожены на k=%d.",
+                self.freeze_basis_at,
+            )
 
         self.labels_ = labels
         self.subspace_bases_ = Y_bases
         self.n_subclasses_ = n_subclasses
         self.is_fitted_ = True
+        logger.info(
+            "ConjugacyClusterGrowth.fit: B.2 готово, размеры подклассов=%s.",
+            np.bincount(labels, minlength=n_subclasses).tolist(),
+        )
 
         return self
 
@@ -241,7 +289,13 @@ class ConjugacyClusterGrowth:
         return int(r_idx), int(s_idx)
 
     def _find_argmax_master(self, R_matrix: np.ndarray) -> Tuple[int, int]:
-        """Находит argmax через ratio к среднему (master strategy, NB7)."""
+        """Находит ОДНО глобальное (x*, s*) через ratio к среднему.
+
+        Аппроксимация идеи NB7 в рамках канона B.2 (один вектор за
+        итерацию) — не литеральная реплика NB7, который назначает по
+        одному вектору КАЖДОМУ подклассу одновременно за один "idea"-шаг.
+        См. предупреждение в docstring модуля.
+        """
         n_remaining, n_subclasses = R_matrix.shape
 
         best_ratio = -np.inf
@@ -257,7 +311,15 @@ class ConjugacyClusterGrowth:
                 R_others = np.concatenate([R_row[:s_idx], R_row[s_idx+1:]])
                 mean_others = R_others.mean() if len(R_others) > 0 else 1.0
 
-                ratio = R_s / mean_others if mean_others > 1e-10 else R_s
+                if mean_others <= 1e-10:
+                    logger.debug(
+                        "ConjugacyClusterGrowth._find_argmax_master: "
+                        "mean_others~0 для кандидата %d/подкласса %d — "
+                        "используем R_s напрямую вместо деления.", r_idx, s_idx,
+                    )
+                    ratio = R_s
+                else:
+                    ratio = R_s / mean_others
 
                 if ratio > best_ratio:
                     best_ratio = ratio
@@ -309,6 +371,10 @@ class ConjugacyClusterGrowth:
 
         n_samples = X_arr.shape[0]
         labels = np.zeros(n_samples, dtype=int)
+        logger.info(
+            "ConjugacyClusterGrowth.predict: %d векторов, %d подклассов.",
+            n_samples, self.n_subclasses_,
+        )
 
         for i in range(n_samples):
             x = X_arr[i]
@@ -320,7 +386,15 @@ class ConjugacyClusterGrowth:
                 )[0]
 
             labels[i] = np.argmax(R_values)
+            logger.debug(
+                "ConjugacyClusterGrowth.predict: вектор %d -> подкласс %d (R=%.6f).",
+                i, labels[i], float(R_values[labels[i]]),
+            )
 
+        logger.info(
+            "ConjugacyClusterGrowth.predict: готово, распределение по подклассам=%s.",
+            np.bincount(labels, minlength=self.n_subclasses_).tolist(),
+        )
         return labels
 
     def _validate_input(self, X: np.ndarray) -> np.ndarray:
@@ -365,6 +439,7 @@ class ConjugacyClusterGrowth:
     def _check_is_fitted(self) -> None:
         """Проверяет, был ли вызван fit()."""
         if not self.is_fitted_:
+            logger.error("ConjugacyClusterGrowth: обращение к результатам до fit().")
             raise RuntimeError(
                 "Модель не обучена. Вызовите fit(X, pairs) перед использованием."
             )
@@ -380,120 +455,3 @@ class ConjugacyClusterGrowth:
             f"ConjugacyClusterGrowth(freeze_basis_at={self.freeze_basis_at}, "
             f"strategy='{self.strategy}', fitted=False)"
         )
-
-
-if __name__ == "__main__":
-    print("=== Demonstracija ConjugacyClusterGrowth (teorija B.2) ===\n")
-    np.random.seed(42)
-
-    # 1. Polnyj cikl: A.1 + A.2-A.3 + B.1 + B.2
-    print("1. Polnyj pipeline: A.1 -> A.2-A.3 -> B.1 -> B.2:")
-    X_demo = np.random.randn(100, 128)
-
-    # Fazy A.1, A.2-A.3, B.1
-    try:
-        from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
-        from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
-        from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
-
-        pair_finder = GlobalMinCosinePairFinder()
-        pair_finder.fit(X_demo)
-        print(f"   A.1: Para {pair_finder.pair_indices_}")
-
-        builder = ReferenceCenterBuilder(n_subclasses=8)
-        builder.fit(X_demo, pair_finder.pair_indices_)
-        print(f"   A.2-A.3: Centrov {len(builder.center_indices_)}")
-
-        attacher = CosineSecondVectorAttacher()
-        attacher.fit(X_demo, builder.center_indices_)
-        pairs = attacher.pairs_
-        print(f"   B.1: Par {len(pairs)}")
-    except ImportError:
-        pairs = np.array([[0, 1], [5, 6], [10, 11], [15, 16],
-                          [20, 21], [25, 26], [30, 31], [35, 36]])
-        print(f"   A.1-B.1 [Fallback]: Par {len(pairs)}")
-
-    # Faza B.2: napolnenie
-    growth = ConjugacyClusterGrowth(freeze_basis_at=2, strategy="default")
-    growth.fit(X_demo, pairs)
-
-    labels = growth.labels_
-    bases = growth.subspace_bases_
-
-    print(f"   B.2 (default): Vse vektory raspredeleny")
-    print(f"       Unikalnyh metok: {len(set(labels))}")
-    print(f"       Bazisov: {len(bases)}, forma pervogo: {bases[0].shape}")
-
-    # 2. Proverka raspredelenija
-    print("\n2. Raspredelenie vektorov po podklassam:")
-    sizes = growth.get_subclass_sizes()
-    print(f"   Razmery podklassov: {sizes}")
-    print(f"   Min razmer: {sizes.min()}, Max razmer: {sizes.max()}")
-    assert sizes.sum() == len(X_demo), "Ne vse vektory raspredeleny"
-    print(f"   OK: Vse {len(X_demo)} vektorov raspredeleny")
-
-    # 3. Proverka freeze_basis_at
-    print("\n3. Proverka freeze_basis_at=2:")
-    for i, Y in enumerate(bases):
-        assert Y.shape[1] == 2, f"Bazis {i} ne zamorozhen"
-    print(f"   OK: Vse bazisy imejut razmer (N, 2) dlja klassifikatora")
-
-    # 4. Master strategy (NB7)
-    print("\n4. Strategy='master' (NB7 replica):")
-    growth_master = ConjugacyClusterGrowth(freeze_basis_at=2, strategy="master")
-    growth_master.fit(X_demo, pairs)
-
-    sizes_master = growth_master.get_subclass_sizes()
-    print(f"   Razmery (master): {sizes_master}")
-    print(f"   Sravnenie s default: {'identichno' if np.array_equal(sizes, sizes_master) else 'razlichaetsja'}")
-
-    # 5. Predict na novyh vektorah
-    print("\n5. Predikcija na novyh vektorah:")
-    X_new = np.random.randn(10, 128)
-    pred_labels = growth.predict(X_new)
-    print(f"   Prediktov: {len(pred_labels)}")
-    print(f"   Unikalnye metki: {sorted(set(pred_labels))}")
-    assert all(0 <= l < 8 for l in pred_labels), "Metki vne diapazona"
-    print(f"   OK: Vse metki v diapazone [0, 7]")
-
-    # 6. Bez freeze (rastushhij bazis)
-    print("\n6. Bez ogranichenia bazisa (freeze_basis_at=None):")
-    growth_no_freeze = ConjugacyClusterGrowth(freeze_basis_at=None)
-    growth_no_freeze.fit(X_demo, pairs)
-    bases_full = growth_no_freeze.subspace_bases_
-
-    print(f"   Razmery bazisov po podklassam:")
-    for i, Y in enumerate(bases_full):
-        print(f"       Podklass {i}: {Y.shape}")
-
-    # 7. Malenkie dannye
-    print("\n7. Kraevoj sluchaj - 20 vektorov, 4 podklassa:")
-    X_small = np.random.randn(20, 32)
-    pairs_small = np.array([[0, 1], [5, 6], [10, 11], [15, 16]])
-
-    growth_small = ConjugacyClusterGrowth(freeze_basis_at=2)
-    growth_small.fit(X_small, pairs_small)
-
-    sizes_small = growth_small.get_subclass_sizes()
-    print(f"   Razmery: {sizes_small}")
-    assert sizes_small.sum() == 20, "Ne vse vektory"
-    print(f"   OK: Vse 20 vektorov raspredeleny")
-
-    # 8. Proizvoditelnost
-    print("\n8. Proizvoditelnost na bolshom batche:")
-    import time
-    X_large = np.random.randn(500, 256)
-    pairs_large = np.array([[i*30, i*30+1] for i in range(8)])
-
-    start = time.perf_counter()
-    growth_large = ConjugacyClusterGrowth(freeze_basis_at=2)
-    growth_large.fit(X_large, pairs_large)
-    elapsed = time.perf_counter() - start
-
-    print(f"   Vektorov: {X_large.shape[0]}, razmernost: {X_large.shape[1]}")
-    print(f"   Podklassov: {len(pairs_large)}")
-    print(f"   Vremja: {elapsed:.3f}s")
-    print(f"   Iteracij: {X_large.shape[0] - 2*len(pairs_large)}")
-
-    print("\n OK Vse demonstracionnye proverki zaversheny!")
-    print(f"\n{growth}")

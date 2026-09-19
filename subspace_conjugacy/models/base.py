@@ -4,10 +4,13 @@
 интерфейс, валидацию входных данных и управление состоянием обученности.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Union
 import numpy as np
 from sklearn.base import BaseEstimator
+
+logger = logging.getLogger(__name__)
 
 
 class BaseSubspaceEstimator(BaseEstimator, ABC):
@@ -51,14 +54,26 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
             Если параметры выходят за допустимые границы.
         """
         if self.n_subclasses <= 0:
+            logger.error(
+                "%s._validate_input_params: n_subclasses=%s <= 0.",
+                type(self).__name__, self.n_subclasses,
+            )
             raise ValueError(
                 f"Параметр n_subclasses должен быть > 0, получено {self.n_subclasses}."
             )
         if self.n_centers_init <= 0:
+            logger.error(
+                "%s._validate_input_params: n_centers_init=%s <= 0.",
+                type(self).__name__, self.n_centers_init,
+            )
             raise ValueError(
                 f"Параметр n_centers_init должен быть > 0, получено {self.n_centers_init}."
             )
         if self.reg_param <= 0:
+            logger.error(
+                "%s._validate_input_params: reg_param=%s <= 0.",
+                type(self).__name__, self.reg_param,
+            )
             raise ValueError(
                 f"Параметр reg_param должен быть > 0, получено {self.reg_param}."
             )
@@ -92,15 +107,24 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(1, -1)
         elif X_arr.ndim != 2:
+            logger.error(
+                "%s._validate_data: неверная размерность X.ndim=%d.",
+                type(self).__name__, X_arr.ndim,
+            )
             raise ValueError(
                 f"Ожидалась 1D или 2D матрица признаков, получена размерность {X_arr.ndim}D."
             )
 
         if X_arr.size == 0:
+            logger.error("%s._validate_data: передана пустая матрица X.", type(self).__name__)
             raise ValueError("Передана пустая матрица признаков X.")
 
         if self.is_fitted_ and self.n_features_in_ is not None:
             if X_arr.shape[1] != self.n_features_in_:
+                logger.error(
+                    "%s._validate_data: несовпадение числа признаков (%d != %d).",
+                    type(self).__name__, X_arr.shape[1], self.n_features_in_,
+                )
                 raise ValueError(
                     f"Количество признаков X ({X_arr.shape[1]}) не совпадает "
                     f"с количеством признаков при обучении ({self.n_features_in_})."
@@ -110,11 +134,20 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
         if y is not None:
             y_arr = np.asarray(y)
             if y_arr.shape[0] != X_arr.shape[0]:
+                logger.error(
+                    "%s._validate_data: несовпадение размера X (%d) и y (%d).",
+                    type(self).__name__, X_arr.shape[0], y_arr.shape[0],
+                )
                 raise ValueError(
                     f"Несовпадение размера: X содержит {X_arr.shape[0]} объектов, "
                     f"а y содержит {y_arr.shape[0]} элементов."
                 )
 
+        logger.debug(
+            "%s._validate_data: X.shape=%s%s.",
+            type(self).__name__, X_arr.shape,
+            f", y.shape={y_arr.shape}" if y_arr is not None else "",
+        )
         return X_arr, y_arr
 
     def _check_is_fitted(self) -> None:
@@ -126,6 +159,10 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
             Если вызов выполняется до проведения метода `fit`.
         """
         if not self.is_fitted_:
+            logger.error(
+                "%s._check_is_fitted: обращение к предсказаниям до fit().",
+                type(self).__name__,
+            )
             raise RuntimeError(
                 "Экземпляр модели еще не обучен. Вызовите метод 'fit' "
                 "перед запуском вычислений предсказаний."
@@ -166,71 +203,3 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
             Матрица сопряженностей.
         """
         pass
-
-
-if __name__ == "__main__":
-    print("=== Запуск самотестирования и проверки base.py ===\n")
-
-    # Вспомогательный класс-заглушка для проверки абстрактного класса
-    class DummySubspaceEstimator(BaseSubspaceEstimator):
-        """Тестовая реализация базового класса."""
-
-        def fit(
-            self, X: np.ndarray, y: Optional[np.ndarray] = None
-        ) -> "DummySubspaceEstimator":
-            self._validate_input_params()
-            X_clean, y_clean = self._validate_data(X, y)
-            self.n_features_in_ = X_clean.shape[1]
-            self.is_fitted_ = True
-            print(f"   [fit] Успешно обработано объектов: {X_clean.shape[0]}, "
-                  f"признаков: {self.n_features_in_}")
-            return self
-
-        def predict_r_matrix(self, X: np.ndarray) -> np.ndarray:
-            self._check_is_fitted()
-            X_clean, _ = self._validate_data(X)
-            # Возвращаем заглушку матрицы показателей R
-            return np.ones((X_clean.shape[0], self.n_subclasses))
-
-    # 1. Проверка валидации параметров инициализации
-    print("1. Тестирование проверки валидности гиперпараметров:")
-    try:
-        invalid_estimator = DummySubspaceEstimator(n_subclasses=-1)
-        invalid_estimator.fit(np.random.randn(10, 5))
-    except ValueError as err:
-        print(f"   [Перехвачена ошибка]: {err}")
-
-    # 2. Инициализация нормального эстиматора
-    estimator = DummySubspaceEstimator(n_subclasses=4, n_centers_init=2)
-
-    # 3. Проверка метода _check_is_fitted до обучения
-    print("\n2. Проверка защиты от предсказаний без предварительного fit:")
-    try:
-        estimator.predict_r_matrix(np.random.randn(5, 10))
-    except RuntimeError as err:
-        print(f"   [Перехвачена ошибка]: {err}")
-
-    # 4. Нормальное обучение и валидация
-    print("\n3. Тестирование валидации данных во время обучения (fit):")
-    X_train = np.random.randn(20, 16)
-    y_train = np.random.randint(0, 2, size=20)
-    estimator.fit(X_train, y_train)
-    assert estimator.is_fitted_ is True
-    assert estimator.n_features_in_ == 16
-
-    # 5. Проверка ошибочной размерности на шаге predict
-    print("\n4. Тестирование несоответствия размерностей признаков:")
-    X_test_invalid = np.random.randn(5, 8)  # 8 признаков вместо 16
-    try:
-        estimator.predict_r_matrix(X_test_invalid)
-    except ValueError as err:
-        print(f"   [Перехвачена ошибка]: {err}")
-
-    # 6. Успешное выполнение предсказания
-    X_test_valid = np.random.randn(5, 16)
-    r_res = estimator.predict_r_matrix(X_test_valid)
-    print("\n5. Успешное получение матрицы результатов предсказания:")
-    print(f"   Форма матрицы R: {r_res.shape}")
-    assert r_res.shape == (5, 4)
-
-    print("\n Все базовые проверки и валидации пройдены!")

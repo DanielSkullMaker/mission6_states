@@ -8,10 +8,13 @@ NB8 (8_Fursov_classification.ipynb, cell 8) считает точность вр
 метрик (accuracy_score, confusion_matrix уже являются зависимостью проекта).
 """
 
+import logging
 from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix
+
+logger = logging.getLogger(__name__)
 
 
 def per_class_accuracy(
@@ -43,6 +46,10 @@ def per_class_accuracy(
     y_pred_arr = np.asarray(y_pred)
 
     if y_true_arr.shape[0] != y_pred_arr.shape[0]:
+        logger.error(
+            "per_class_accuracy: несовпадение размеров y_true=%d, y_pred=%d.",
+            y_true_arr.shape[0], y_pred_arr.shape[0],
+        )
         raise ValueError(
             f"Несовпадение размеров: y_true содержит {y_true_arr.shape[0]} "
             f"элементов, y_pred — {y_pred_arr.shape[0]}."
@@ -53,6 +60,7 @@ def per_class_accuracy(
         mask = y_true_arr == cls
         accuracies[cls] = float(np.mean(y_pred_arr[mask] == cls))
 
+    logger.debug("per_class_accuracy: %s.", accuracies)
     return accuracies
 
 
@@ -88,13 +96,18 @@ def evaluate_classifier(
 
     labels_arr = np.unique(y_true_arr) if labels is None else np.asarray(labels)
 
-    return {
+    report = {
         "accuracy": float(accuracy_score(y_true_arr, y_pred_arr)),
         "per_class_accuracy": per_class_accuracy(y_true_arr, y_pred_arr),
         "confusion_matrix": confusion_matrix(y_true_arr, y_pred_arr, labels=labels_arr),
         "labels": labels_arr,
         "n_samples": int(y_true_arr.shape[0]),
     }
+    logger.info(
+        "evaluate_classifier: %d объектов, accuracy=%.4f, классы=%s.",
+        report["n_samples"], report["accuracy"], list(labels_arr),
+    )
+    return report
 
 
 def confidence_summary(confidence_ratio: np.ndarray) -> Dict[str, float]:
@@ -114,39 +127,11 @@ def confidence_summary(confidence_ratio: np.ndarray) -> Dict[str, float]:
     """
     confidence_arr = np.asarray(confidence_ratio, dtype=np.float64)
 
-    return {
+    summary = {
         "mean": float(np.mean(confidence_arr)),
         "min": float(np.min(confidence_arr)),
         "max": float(np.max(confidence_arr)),
         "fraction_negative": float(np.mean(confidence_arr < 0)),
     }
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация evaluation/metrics.py ===\n")
-    np.random.seed(42)
-
-    y_true_demo = np.array(["glioma"] * 5 + ["meningioma"] * 5 + ["pituitary"] * 5)
-    # Симулируем несовершенный классификатор
-    y_pred_demo = y_true_demo.copy()
-    y_pred_demo[0] = "meningioma"
-    y_pred_demo[6] = "pituitary"
-
-    print("1. per_class_accuracy:")
-    acc_by_class = per_class_accuracy(y_true_demo, y_pred_demo)
-    for cls, acc in acc_by_class.items():
-        print(f"   {cls}: {acc:.2f}")
-
-    print("\n2. evaluate_classifier (полный отчёт):")
-    report = evaluate_classifier(y_true_demo, y_pred_demo)
-    print(f"   Общая accuracy: {report['accuracy']:.4f}")
-    print(f"   Классы: {report['labels']}")
-    print(f"   Confusion matrix:\n{report['confusion_matrix']}")
-
-    print("\n3. confidence_summary:")
-    fake_confidence = np.random.uniform(-0.5, 3.0, size=15)
-    summary = confidence_summary(fake_confidence)
-    print(f"   {summary}")
-
-    assert 0.0 <= report["accuracy"] <= 1.0
-    print("\nВсе демонстрационные проверки завершены!")
+    logger.debug("confidence_summary: %s.", summary)
+    return summary

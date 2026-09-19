@@ -131,16 +131,26 @@ def three_class_dataset(random_seed) -> Tuple[np.ndarray, np.ndarray]:
 
 @pytest.fixture
 def default_dataset_config() -> DatasetConfig:
-    """DatasetConfig с путями по умолчанию (data/).
+    """DatasetConfig с путями по умолчанию (data/brain_tumor_mri/).
 
     Returns
     -------
     DatasetConfig
-        Конфигурация с root="data", 3 класса, n_subclasses=8.
+        Конфигурация с root="data/brain_tumor_mri", 3 класса, n_subclasses=8.
+
+    Notes
+    -----
+    Артефакты оригинальных ноутбуков (raw/resized/centered изображения,
+    CSV из NB3 и NB6-7) лежат в репозитории на уровень глубже, чем
+    "data/" — см. аудит плана рефакторинга (раздел 0, находка №3):
+    ``data/brain_tumor_mri/glioma_raw``, ``data/brain_tumor_mri/5_all_vectors/...``
+    и т.п. root="data" (без вложенной папки) не находит ничего и все
+    notebook_parity-тесты в test_csv_io.py пропускаются, хотя часть нужных
+    файлов физически присутствует.
     """
     if DatasetConfig is None:
         pytest.skip("DatasetConfig not available")
-    return DatasetConfig(root="data")
+    return DatasetConfig(root="data/brain_tumor_mri")
 
 
 @pytest.fixture

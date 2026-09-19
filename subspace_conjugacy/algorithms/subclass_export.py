@@ -15,9 +15,12 @@
   - IO функции: save_subclass_bases, load_subclass_bases из io/vectors.py
 """
 
+import logging
 from pathlib import Path
 from typing import List, Optional, Union
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def flatten_subspace_bases(
@@ -107,6 +110,10 @@ def flatten_subspace_bases(
     # Транспонируем каждый базис (N, k) → (k, N) и конкатенируем
     transposed_bases = [Y.T for Y in subspaces]  # Каждый теперь (k, N)
     flattened = np.vstack(transposed_bases)  # (S*k, N)
+    logger.debug(
+        "flatten_subspace_bases: %d базисов (N=%d, k=%d) -> flattened.shape=%s.",
+        n_subclasses, n_features, basis_sizes[0], flattened.shape,
+    )
 
     return flattened
 
@@ -164,6 +171,10 @@ def unflatten_subspace_bases(
         Y_s = Y_s_transposed.T  # (N, k)
         subspaces.append(Y_s)
 
+    logger.debug(
+        "unflatten_subspace_bases: flattened.shape=%s -> %d базисов (N=%d, k=%d).",
+        flattened.shape, n_subclasses, n_features, basis_size,
+    )
     return subspaces
 
 
@@ -205,6 +216,7 @@ def export_clusterer_bases(
     >>> print(f"Базисы экспортированы в {path}")
     """
     if not hasattr(clusterer, "subspaces_") or clusterer.subspaces_ is None:
+        logger.error("export_clusterer_bases: кластеризатор %r не обучен.", clusterer)
         raise RuntimeError(
             "Кластеризатор не обучен или не имеет атрибута subspaces_. "
             "Вызовите fit(X) перед экспортом."
@@ -218,6 +230,9 @@ def export_clusterer_bases(
 
     # Сохранение в CSV через numpy
     np.savetxt(output_path, flattened, delimiter=",", fmt="%.18e")
+    logger.info(
+        "export_clusterer_bases: сохранено %s (shape=%s).", output_path, flattened.shape,
+    )
 
     return output_path
 
@@ -265,6 +280,10 @@ def export_all_classes(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(
+        "export_all_classes: экспорт %d классов в %s.",
+        len(clusterers_dict), output_dir,
+    )
 
     paths = {}
     for class_name, clusterer in clusterers_dict.items():
@@ -277,92 +296,5 @@ def export_all_classes(
             expected_basis_size=2,
         )
 
+    logger.info("export_all_classes: готово, %d файлов записано.", len(paths))
     return paths
-
-
-if __name__ == "__main__":
-    print("=== Demonstration: subclass_export.py ===\n")
-    import numpy as np
-
-    # Симуляция обученного FursovClusterer
-    print("1. Creating synthetic bases (like after freeze_basis_at=2):")
-    n_subclasses = 8
-    n_features = 256
-    basis_size = 2
-
-    # Generate S bases (N, 2)
-    np.random.seed(42)
-    subspaces = [
-        np.random.randn(n_features, basis_size) for _ in range(n_subclasses)
-    ]
-    print(f"   Subclasses: {len(subspaces)}")
-    print(f"   Basis shape: {subspaces[0].shape}")
-
-    # 2. Flatten
-    print("\n2. Flatten: list of bases -> flat matrix:")
-    flattened = flatten_subspace_bases(subspaces, expected_basis_size=2)
-    print(f"   Flat matrix shape: {flattened.shape}")
-    print(f"   Expected: ({n_subclasses * basis_size}, {n_features})")
-
-    # 3. Unflatten
-    print("\n3. Unflatten: flat matrix -> list of bases:")
-    restored = unflatten_subspace_bases(flattened, n_subclasses=8, basis_size=2)
-    print(f"   Restored bases: {len(restored)}")
-    print(f"   First basis shape: {restored[0].shape}")
-
-    # Check roundtrip
-    all_match = all(
-        np.allclose(orig, rest) for orig, rest in zip(subspaces, restored)
-    )
-    print(f"   Roundtrip correct: {all_match}")
-
-    # 4. Export to CSV
-    print("\n4. Export to CSV file:")
-    from tempfile import TemporaryDirectory
-
-    with TemporaryDirectory() as tmpdir:
-        output_path = Path(tmpdir) / "8_test_subclasses_vectors.csv"
-
-        # Симуляция кластеризатора
-        class MockClusterer:
-            def __init__(self, subspaces_):
-                self.subspaces_ = subspaces_
-
-        mock_clusterer = MockClusterer(subspaces)
-        saved_path = export_clusterer_bases(mock_clusterer, output_path)
-        print(f"   Saved to: {saved_path}")
-        print(f"   File exists: {saved_path.exists()}")
-
-        # Check file size
-        file_lines = len(saved_path.read_text().strip().split("\n"))
-        print(f"   Lines in file: {file_lines} (expected {n_subclasses * basis_size})")
-
-        # 5. Load back
-        print("\n5. Loading from CSV:")
-        loaded = np.loadtxt(saved_path, delimiter=",")
-        print(f"   Loaded matrix shape: {loaded.shape}")
-        print(f"   Matches flattened: {np.allclose(flattened, loaded)}")
-
-    # 6. Error validation
-    print("\n6. Error validation:")
-    try:
-        # Different basis sizes
-        bad_subspaces = [
-            np.random.randn(n_features, 2),
-            np.random.randn(n_features, 3),  # <- wrong size
-        ]
-        flatten_subspace_bases(bad_subspaces, expected_basis_size=2)
-    except ValueError as e:
-        print(f"   [Error caught as expected]: {str(e)[:60]}...")
-
-    try:
-        # Different feature dimensions
-        bad_features = [
-            np.random.randn(256, 2),
-            np.random.randn(128, 2),  # <- wrong N
-        ]
-        flatten_subspace_bases(bad_features)
-    except ValueError as e:
-        print(f"   [Error caught as expected]: {str(e)[:60]}...")
-
-    print("\n[OK] All demonstration checks completed successfully!")

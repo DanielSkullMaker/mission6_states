@@ -18,8 +18,11 @@
   clusterer.py:102-106 — ✅ совпадает с этим модулем (глобальный argmin).
 """
 
+import logging
 from typing import Optional, Tuple
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.core.metrics import cosine_similarity_matrix
@@ -97,8 +100,17 @@ class GlobalMinCosinePairFinder:
         """
         X_arr = self._validate_input(X)
         n_samples = X_arr.shape[0]
+        logger.info(
+            "GlobalMinCosinePairFinder.fit: A.1 старт, %d векторов, N=%d "
+            "(%d возможных пар).", n_samples, X_arr.shape[1],
+            n_samples * (n_samples - 1) // 2,
+        )
 
         if n_samples < 2:
+            logger.error(
+                "GlobalMinCosinePairFinder.fit: требуется минимум 2 вектора, "
+                "получено %d.", n_samples,
+            )
             raise ValueError(
                 f"Требуется минимум 2 вектора для поиска пары, получено {n_samples}."
             )
@@ -116,11 +128,19 @@ class GlobalMinCosinePairFinder:
         # 4. Сохраняем результаты (idx1 < idx2 для каноничности)
         self.pair_indices_ = tuple(sorted([int(idx1), int(idx2)]))
         self.similarity_value_ = float(sim_matrix[idx1, idx2])
+        logger.info(
+            "GlobalMinCosinePairFinder.fit: A.1 готово, пара=%s, cos=%.6f.",
+            self.pair_indices_, self.similarity_value_,
+        )
 
         if store_matrix:
             # Восстанавливаем диагональ для корректного отображения
             np.fill_diagonal(sim_matrix, 1.0)
             self.similarity_matrix_ = sim_matrix
+            logger.debug(
+                "GlobalMinCosinePairFinder.fit: similarity_matrix_ сохранена, shape=%s.",
+                sim_matrix.shape,
+            )
 
         self.is_fitted_ = True
         return self
@@ -166,6 +186,7 @@ class GlobalMinCosinePairFinder:
     def _check_is_fitted(self) -> None:
         """Проверяет, был ли вызван fit()."""
         if not self.is_fitted_:
+            logger.error("GlobalMinCosinePairFinder: обращение к результатам до fit().")
             raise RuntimeError(
                 "Модель не обучена. Вызовите fit(X) перед использованием."
             )
@@ -178,73 +199,3 @@ class GlobalMinCosinePairFinder:
                 f"cos={self.similarity_value_:.4f})"
             )
         return "GlobalMinCosinePairFinder(not fitted)"
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация GlobalMinCosinePairFinder (теория A.1) ===\n")
-    np.random.seed(42)
-
-    # 1. Базовый пример
-    print("1. Поиск глобальной пары на синтетических данных:")
-    X_small = np.random.randn(20, 64)
-    finder = GlobalMinCosinePairFinder()
-    finder.fit(X_small)
-
-    idx1, idx2 = finder.pair_indices_
-    print(f"   Найдена пара: ({idx1}, {idx2})")
-    print(f"   Косинусное сходство: {finder.similarity_value_:.6f}")
-    print(f"   Это минимальное значение среди {20*19//2} возможных пар")
-
-    # 2. Получение векторов пары
-    print("\n2. Извлечение векторов пары:")
-    v1, v2 = finder.get_pair_vectors(X_small)
-    print(f"   Вектор 1: shape={v1.shape}, norm={np.linalg.norm(v1):.2f}")
-    print(f"   Вектор 2: shape={v2.shape}, norm={np.linalg.norm(v2):.2f}")
-
-    # Проверка косинусного сходства вручную
-    manual_cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-    print(f"   Проверка: ручной расчёт cos = {manual_cos:.6f}")
-    assert np.isclose(manual_cos, finder.similarity_value_), "Косинусы не совпадают!"
-
-    # 3. Сравнение с диагональю
-    print("\n3. Проверка инварианта: cos(v_i, v_i) = 1.0 > min_cos:")
-    finder_with_matrix = GlobalMinCosinePairFinder()
-    finder_with_matrix.fit(X_small, store_matrix=True)
-    diag_values = np.diag(finder_with_matrix.similarity_matrix_)
-    print(f"   Самосходство (диагональ): {diag_values[:5].round(4)}")
-    print(f"   Все значения ≈ 1.0: {np.allclose(diag_values, 1.0)}")
-    print(f"   Минимальное сходство пары: {finder.similarity_value_:.4f} < 1.0")
-
-    # 4. Большой батч
-    print("\n4. Производительность на большом батче:")
-    import time
-    X_large = np.random.randn(1000, 512)
-
-    start = time.perf_counter()
-    finder_large = GlobalMinCosinePairFinder()
-    finder_large.fit(X_large)
-    elapsed = time.perf_counter() - start
-
-    print(f"   Векторов: {X_large.shape[0]}, размерность: {X_large.shape[1]}")
-    print(f"   Возможных пар: {1000*999//2} = 499,500")
-    print(f"   Время выполнения: {elapsed:.3f}s")
-    print(f"   Найдена пара: {finder_large.pair_indices_}")
-
-    # 5. Краевой случай: два вектора
-    print("\n5. Краевой случай — всего 2 вектора:")
-    X_two = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-    finder_two = GlobalMinCosinePairFinder()
-    finder_two.fit(X_two)
-    print(f"   Единственная возможная пара: {finder_two.pair_indices_}")
-    print(f"   Косинус (ортогональные векторы): {finder_two.similarity_value_:.6f}")
-
-    # 6. Проверка ошибки при M < 2
-    print("\n6. Проверка валидации (M < 2):")
-    X_one = np.random.randn(1, 64)
-    try:
-        finder.fit(X_one)
-    except ValueError as err:
-        print(f"   [Перехвачена ожидаемая ошибка]: {err}")
-
-    print("\n✓ Все демонстрационные проверки завершены!")
-    print(f"\n{finder_large}")

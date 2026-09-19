@@ -22,8 +22,11 @@
   Выход используется в ConjugacyClusterGrowth (фаза B.2).
 """
 
+import logging
 from typing import List, Optional, Tuple
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.core.metrics import cosine_similarity_matrix
@@ -122,9 +125,17 @@ class CosineSecondVectorAttacher:
 
         n_samples = X_arr.shape[0]
         n_subclasses = len(center_indices_arr)
+        logger.info(
+            "CosineSecondVectorAttacher.fit: B.1 старт, %d центров, %d векторов доступно.",
+            n_subclasses, n_samples,
+        )
 
         # Проверка: нужно минимум n_subclasses * 2 векторов
         if n_samples < n_subclasses * 2:
+            logger.error(
+                "CosineSecondVectorAttacher.fit: недостаточно векторов (%d < %d).",
+                n_samples, n_subclasses * 2,
+            )
             raise ValueError(
                 f"Недостаточно векторов для формирования пар: "
                 f"требуется минимум {n_subclasses * 2}, получено {n_samples}."
@@ -141,6 +152,10 @@ class CosineSecondVectorAttacher:
         # Для каждого центра находим второй вектор с минимальным cos
         for center_idx in center_indices_arr:
             if not remaining:
+                logger.error(
+                    "CosineSecondVectorAttacher.fit: remaining пуст на центре %d "
+                    "(сформировано %d/%d пар).", center_idx, len(pairs), n_subclasses,
+                )
                 raise RuntimeError(
                     f"Не осталось векторов для подкласса с центром {center_idx}."
                 )
@@ -153,6 +168,12 @@ class CosineSecondVectorAttacher:
             min_cos_idx_local = np.argmin(cos_with_center)
             second_vector_idx = remaining_list[min_cos_idx_local]
             min_cos_value = cos_with_center[min_cos_idx_local]
+            logger.debug(
+                "CosineSecondVectorAttacher.fit: подкласс %d — центр=%d, "
+                "второй вектор=%d, cos=%.6f (кандидатов было %d).",
+                len(pairs), center_idx, second_vector_idx, min_cos_value,
+                len(remaining_list),
+            )
 
             # Сохраняем пару
             pairs.append([center_idx, second_vector_idx])
@@ -165,6 +186,10 @@ class CosineSecondVectorAttacher:
         self.pairs_ = np.array(pairs, dtype=int)
         self.cosine_values_ = np.array(cosine_vals) if store_cosine_values else None
         self.is_fitted_ = True
+        logger.info(
+            "CosineSecondVectorAttacher.fit: B.1 готово, %d пар сформировано.",
+            len(pairs),
+        )
 
         return self
 
@@ -274,6 +299,7 @@ class CosineSecondVectorAttacher:
     def _check_is_fitted(self) -> None:
         """Проверяет, был ли вызван fit()."""
         if not self.is_fitted_:
+            logger.error("CosineSecondVectorAttacher: обращение к результатам до fit().")
             raise RuntimeError(
                 "Модель не обучена. Вызовите fit(X, center_indices) перед использованием."
             )
@@ -285,124 +311,3 @@ class CosineSecondVectorAttacher:
                 f"fitted=True)"
             )
         return "CosineSecondVectorAttacher(fitted=False)"
-
-
-if __name__ == "__main__":
-    print("=== Demonstracija CosineSecondVectorAttacher (teorija B.1) ===\n")
-    np.random.seed(42)
-
-    # 1. Polnyj cikl: A.1 + A.2-A.3 + B.1
-    print("1. Polnyj pipeline: A.1 -> A.2-A.3 -> B.1:")
-    X_small = np.random.randn(50, 64)
-
-    # Faza A.1: globalnaja para
-    try:
-        from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
-        pair_finder = GlobalMinCosinePairFinder()
-        pair_finder.fit(X_small)
-        initial_pair = pair_finder.pair_indices_
-        print(f"   A.1: Najdena para: {initial_pair}")
-    except ImportError:
-        initial_pair = (0, 1)
-        print(f"   A.1 [Fallback]: Para {initial_pair}")
-
-    # Faza A.2-A.3: centry
-    try:
-        from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
-        builder = ReferenceCenterBuilder(n_subclasses=8)
-        builder.fit(X_small, initial_pair)
-        centers = builder.center_indices_
-        print(f"   A.2-A.3: Najdeno centrov: {len(centers)}")
-        print(f"   Indeksy centrov: {list(centers)}")
-    except ImportError:
-        centers = np.array([0, 1, 5, 10, 15, 20, 25, 30])
-        print(f"   A.2-A.3 [Fallback]: Centry {list(centers)}")
-
-    # Faza B.1: vtoroj vektor k kazhdomu centru
-    attacher = CosineSecondVectorAttacher()
-    attacher.fit(X_small, centers, store_cosine_values=True)
-
-    pairs = attacher.pairs_
-    print(f"   B.1: Sformirovano par: {len(pairs)}")
-    print(f"   Pervaja para: center={pairs[0][0]}, second={pairs[0][1]}")
-
-    # 2. Proverka unikalnosti
-    print("\n2. Proverka unikalnosti indeksov:")
-    all_indices = pairs.flatten()
-    unique_indices = set(all_indices)
-    print(f"   Vsego indeksov v parah: {len(all_indices)}")
-    print(f"   Unikalnyh indeksov: {len(unique_indices)}")
-    assert len(unique_indices) == len(all_indices), "Dolzhny byt unikalnymi"
-    print(f"   OK: Vse indeksy unikalnye")
-
-    # 3. Proverka, chto pervye elementy par = centry
-    print("\n3. Proverka sootvetstvija centrov:")
-    for i, (center_in_pair, _) in enumerate(pairs):
-        assert center_in_pair == centers[i], f"Nesootvetstvie v podklasse {i}"
-    print(f"   OK: Vse pervye elementy par sovpadajut s centrami")
-
-    # 4. Proverka minimalnyh kosinusov
-    print("\n4. Proverka minimal'nyh kosinusov:")
-    if attacher.cosine_values_ is not None:
-        print(f"   Sredneje kosinus: {attacher.cosine_values_.mean():.4f}")
-        print(f"   Min kosinus: {attacher.cosine_values_.min():.4f}")
-        print(f"   Max kosinus: {attacher.cosine_values_.max():.4f}")
-
-    # 5. Izvlechenie bazisov podprostranstv
-    print("\n5. Izvlechenie bazisov Y_s (N×2):")
-    bases = attacher.get_subspace_bases(X_small)
-    print(f"   Kolichestvo bazisov: {len(bases)}")
-    print(f"   Forma pervogo bazisa: {bases[0].shape}")
-    assert all(Y.shape == (64, 2) for Y in bases), "Vse bazisy dolzhny byt' (N, 2)"
-    print(f"   OK: Vse bazisy imejut formu (64, 2)")
-
-    # 6. Proverka get_pair_vectors
-    print("\n6. Proverka get_pair_vectors:")
-    v1, v2 = attacher.get_pair_vectors(X_small, subclass_index=0)
-    print(f"   Vektor centra (norma): {np.linalg.norm(v1):.2f}")
-    print(f"   Vtoroj vektor (norma): {np.linalg.norm(v2):.2f}")
-    manual_cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-    print(f"   Kosinus mezhdu nimi: {manual_cos:.4f}")
-
-    # 7. Bolshoj batch
-    print("\n7. Proizvoditelnost na bolshom batche:")
-    import time
-    X_large = np.random.randn(1000, 512)
-    centers_large = np.arange(0, 160, 10)  # 16 centrov
-
-    start = time.perf_counter()
-    attacher_large = CosineSecondVectorAttacher()
-    attacher_large.fit(X_large, centers_large)
-    elapsed = time.perf_counter() - start
-
-    print(f"   Vektorov: {X_large.shape[0]}, razmernost: {X_large.shape[1]}")
-    print(f"   Podklassov: {len(centers_large)}")
-    print(f"   Vremja vypolnenija: {elapsed:.3f}s")
-    print(f"   Pary: {attacher_large.pairs_.shape}")
-
-    # 8. Kraevoj sluchaj: 2 centra
-    print("\n8. Kraevoj sluchaj - 2 centra:")
-    X_tiny = np.random.randn(10, 16)
-    centers_tiny = np.array([0, 5])
-    attacher_tiny = CosineSecondVectorAttacher()
-    attacher_tiny.fit(X_tiny, centers_tiny)
-    print(f"   Pary: {attacher_tiny.pairs_}")
-    assert len(attacher_tiny.pairs_) == 2, "Dolzhno byt 2 pary"
-    print(f"   OK: Sformirovano 2 pary")
-
-    # 9. Proverka oshibok
-    print("\n9. Proverka validacii:")
-    try:
-        attacher_bad = CosineSecondVectorAttacher()
-        attacher_bad.fit(X_small, centers=np.array([0, 0, 1]))  # Dublikaty
-    except ValueError as err:
-        print(f"   [Oshibka dublikaty]: {err}")
-
-    try:
-        attacher_bad2 = CosineSecondVectorAttacher()
-        attacher_bad2.fit(X_small[:5], centers=np.arange(8))  # 5 < 16
-    except ValueError as err:
-        print(f"   [Oshibka nedostatochno vektorov]: {err}")
-
-    print("\n OK Vse demonstracionnye proverki zaversheny!")
-    print(f"\n{attacher}")

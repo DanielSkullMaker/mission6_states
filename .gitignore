@@ -61,3 +61,5 @@ pipeline_metadata.json
 # отдельно от кода (см. README "Данные").
 datasets/
 data/
+*.png
+*.jpg

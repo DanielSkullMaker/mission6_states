@@ -2,10 +2,26 @@
 
 Предоставляет векторизованные функции для расчета показателя сопряженности R(x, Y)
 и косинусных расстояний
+
+Логирование
+-----------
+conjugate_criterion — самая "горячая" функция библиотеки: алгоритмы
+кластеризации (особенно B.2, ConjugacyClusterGrowth) вызывают её десятки
+тысяч раз за один fit(). Поэтому здесь НЕТ лога на каждый вызов — это
+раздуло бы вывод до бесполезности и заметно замедлило бы вычисления даже
+при DEBUG-уровне. Вместо этого:
+  - compute_gram_inverse логирует WARNING только в редком случае — когда
+    матрица Грама вырождена и происходит откат на np.linalg.pinv;
+  - алгоритмы верхнего уровня (algorithms/*.py) логируют осмысленные шаги
+    ("центр найден", "вектор присоединён к подклассу"), а не отдельные
+    вызовы conjugate_criterion.
 """
 
+import logging
 from typing import Union
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def compute_gram_inverse(
@@ -34,6 +50,12 @@ def compute_gram_inverse(
     try:
         inv_gram = np.linalg.inv(gram + reg_matrix)
     except np.linalg.LinAlgError:
+        logger.warning(
+            "compute_gram_inverse: матрица Грама (%dx%d) вырождена даже после "
+            "регуляризации (reg_param=%s) — откат на np.linalg.pinv. "
+            "Возможная причина: линейно зависимые/дублирующиеся базисные векторы.",
+            k, k, reg_param,
+        )
         inv_gram = np.linalg.pinv(gram)
 
     return inv_gram
@@ -74,6 +96,10 @@ def conjugate_criterion(
         Y = Y.reshape(-1, 1)
 
     if Y.shape[0] != N:
+        logger.error(
+            "conjugate_criterion: несовпадение размерностей — X имеет %d "
+            "признаков, а базис Y — %d.", N, Y.shape[0],
+        )
         raise ValueError(
             f"Несовпадение размерностей признаков: X имеет размерность {N}, "
             f"а базис Y — {Y.shape[0]}."
@@ -124,55 +150,15 @@ def cosine_similarity_matrix(
     X_norm = X / np.maximum(np.linalg.norm(X, axis=1, keepdims=True), 1e-12)
 
     if Y is None:
+        logger.debug(
+            "cosine_similarity_matrix: попарное сходство внутри X, shape=%s -> %s",
+            X.shape, (X.shape[0], X.shape[0]),
+        )
         return np.clip(X_norm @ X_norm.T, -1.0, 1.0)
 
     Y_norm = Y / np.maximum(np.linalg.norm(Y, axis=1, keepdims=True), 1e-12)
+    logger.debug(
+        "cosine_similarity_matrix: X.shape=%s, Y.shape=%s -> %s",
+        X.shape, Y.shape, (X.shape[0], Y.shape[0]),
+    )
     return np.clip(X_norm @ Y_norm.T, -1.0, 1.0)
-
-
-if __name__ == "__main__":
-    # Фиксируем seed для воспроизводимости тестов
-    np.random.seed(42)
-
-    print("=== Запуск демонстрации и самотестирования metrics.py ===\n")
-
-    # Конфигурация тестовых данных: M векторов, размерность N, k базисов
-    n_samples = 5
-    n_features = 128
-    n_bases = 4
-
-    # 1. Генерация синтетических данных
-    X_batch = np.random.randn(n_samples, n_features)
-    Y_basis = np.random.randn(n_features, n_bases)
-    single_x = X_batch[0]
-
-    # 2. Тестирование единичного вектора
-    r_single = conjugate_criterion(single_x, Y_basis)
-    print(f"1. Скалярный вектор x (N={n_features}):")
-    print(f"   R(x, Y) = {r_single:.6f}")
-    assert isinstance(r_single, float), "Результат должен быть float"
-    assert 0.0 <= r_single <= 1.0, "Показатель R должен быть в диапазоне [0, 1]"
-
-    # 3. Тестирование батча векторов
-    r_batch = conjugate_criterion(X_batch, Y_basis)
-    print(f"\n2. Батч векторов X (M={n_samples}, N={n_features}):")
-    print(f"   R(X, Y) = {r_batch.round(6)}")
-    assert isinstance(r_batch, np.ndarray), "Результат должен быть np.ndarray"
-    assert r_batch.shape == (n_samples,), f"Ожидалась форма ({n_samples},)"
-    assert np.all((r_batch >= 0.0) & (r_batch <= 1.0)), "Все R должны быть в [0, 1]"
-
-    # 4. Проверка краевого случая: Вырожденность (линейная зависимость в Y)
-    # Создаем вырожденный базис, добавив коллинеарный столбец
-    Y_singular = np.column_stack([Y_basis, Y_basis[:, [0]] * 2.5])
-    r_singular = conjugate_criterion(X_batch, Y_singular)
-    print(f"\n3. Проверка регуляризации на вырожденном базисе Y (k={n_bases + 1}):")
-    print(f"   R(X, Y_singular) = {r_singular.round(6)}")
-    assert not np.isnan(r_singular).any(), "Результат не должен содержать NaN"
-
-    # 5. Тестирование косинусного сходства
-    cos_sim = cosine_similarity_matrix(X_batch)
-    print(f"\n4. Попарное косинусное сходство (размерность {cos_sim.shape}):")
-    print(f"   Диагональ (самосходство) = {np.diag(cos_sim).round(4)}")
-    assert np.allclose(np.diag(cos_sim), 1.0), "Диагональ должна состоять из 1.0"
-
-    print("\n Все проверки успешно пройдены!")

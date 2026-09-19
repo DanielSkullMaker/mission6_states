@@ -20,6 +20,16 @@
 
 __version__ = "0.1.0"
 
+import logging as _logging
+
+# Библиотека не настраивает handlers сама (стандартная практика для
+# библиотек) — NullHandler подавляет предупреждение "No handlers could be
+# found" для потребителей, которые не настроили логирование. Чтобы увидеть
+# подробный трейс работы алгоритмов, вызовите configure_logging().
+_logging.getLogger(__name__).addHandler(_logging.NullHandler())
+
+from subspace_conjugacy.utils.logging_config import configure_logging
+
 # Core metrics
 from subspace_conjugacy.core.metrics import (
     conjugate_criterion,
@@ -35,6 +45,17 @@ from subspace_conjugacy.models.classifier import SubspaceConjugacyClassifier
 from subspace_conjugacy.algorithms.fursov_clusterer import (
     FursovClusterer,
     SubspaceClusterer,  # Alias для обратной совместимости
+)
+
+# Pipeline orchestrator (Фаза 6)
+from subspace_conjugacy.pipeline import FursovPipeline
+
+# Preprocessing (NB1-NB2)
+from subspace_conjugacy.preprocessing import (
+    ImagePreprocessor,
+    center_image,
+    resize_image,
+    suppress_background,
 )
 
 # Feature extraction
@@ -96,6 +117,8 @@ from subspace_conjugacy.utils.validation import (
 __all__ = [
     # Version
     "__version__",
+    # Logging
+    "configure_logging",
     # Core metrics
     "conjugate_criterion",
     "cosine_similarity_matrix",
@@ -106,6 +129,13 @@ __all__ = [
     # Canonical algorithms
     "FursovClusterer",
     "SubspaceClusterer",  # Alias
+    # Pipeline orchestrator
+    "FursovPipeline",
+    # Preprocessing
+    "ImagePreprocessor",
+    "resize_image",
+    "suppress_background",
+    "center_image",
     # Feature extraction
     "vectorize_image",
     "vectorize_batch",

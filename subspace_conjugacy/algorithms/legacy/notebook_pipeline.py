@@ -18,6 +18,7 @@ Staged flow:
 НЕ используется в production (используйте FursovClusterer).
 """
 
+import logging
 from pathlib import Path
 from typing import Optional, Tuple
 import numpy as np
@@ -30,6 +31,8 @@ from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuild
 from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
 from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
 from subspace_conjugacy.algorithms.subclass_export import flatten_subspace_bases
+
+logger = logging.getLogger(__name__)
 
 
 class NotebookStagedPipeline:
@@ -76,6 +79,7 @@ class NotebookStagedPipeline:
 
     def run_nb4_per_vector_pairs(self, X: np.ndarray):
         """NB4: Per-vector trio_list (legacy, не канон)."""
+        logger.info("NotebookStagedPipeline.run_nb4_per_vector_pairs [LEGACY]: старт.")
         return compute_per_vector_pairs_nb4(X)
 
     def run_nb5_reference_centers(
@@ -101,13 +105,26 @@ class NotebookStagedPipeline:
         if initial_pair is None:
             if self.use_canonical_pair:
                 # Канонический: глобальная пара
+                logger.info(
+                    "NotebookStagedPipeline.run_nb5_reference_centers: "
+                    "initial_pair не задан, используем канон A.1 (GlobalMinCosinePairFinder)."
+                )
                 finder = GlobalMinCosinePairFinder()
                 finder.fit(X)
                 initial_pair = finder.pair_indices_
             else:
                 # Legacy NB4: вручную из trio_list
+                logger.info(
+                    "NotebookStagedPipeline.run_nb5_reference_centers [LEGACY]: "
+                    "initial_pair не задан, берём из NB4 trio_list по индексу %s.",
+                    self.manual_pair_index,
+                )
                 trio_list = self.run_nb4_per_vector_pairs(X)
                 if self.manual_pair_index is None:
+                    logger.error(
+                        "NotebookStagedPipeline.run_nb5_reference_centers [LEGACY]: "
+                        "manual_pair_index не задан при use_canonical_pair=False."
+                    )
                     raise ValueError(
                         "manual_pair_index required when use_canonical_pair=False"
                     )
@@ -127,6 +144,7 @@ class NotebookStagedPipeline:
         center_indices: np.ndarray,
     ) -> np.ndarray:
         """NB6: Формирование пар для подклассов (теория B.1)."""
+        logger.info("NotebookStagedPipeline.run_nb6_subclass_pairs: старт (B.1).")
         attacher = CosineSecondVectorAttacher()
         attacher.fit(X, center_indices)
         return attacher.pairs_
@@ -138,6 +156,10 @@ class NotebookStagedPipeline:
         strategy: str = "default",
     ):
         """NB7: Наполнение кластеров (теория B.2)."""
+        logger.info(
+            "NotebookStagedPipeline.run_nb7_cluster_growth: старт (B.2, strategy=%s).",
+            strategy,
+        )
         growth = ConjugacyClusterGrowth(
             freeze_basis_at=2,
             strategy=strategy,
@@ -164,6 +186,12 @@ class NotebookStagedPipeline:
                 'flattened_bases': np.ndarray,  # для CSV экспорта
             }
         """
+        logger.info(
+            "NotebookStagedPipeline.run_full_pipeline [LEGACY NB5->NB6->NB7]: "
+            "старт, X.shape=%s, use_canonical_pair=%s, strategy=%s.",
+            X.shape, self.use_canonical_pair, strategy,
+        )
+
         # NB5
         centers = self.run_nb5_reference_centers(X)
 
@@ -176,6 +204,10 @@ class NotebookStagedPipeline:
         # Flatten для CSV (формат 8_{class}_subclasses_vectors.csv)
         flattened = flatten_subspace_bases(subspaces, expected_basis_size=2)
 
+        logger.info(
+            "NotebookStagedPipeline.run_full_pipeline [LEGACY]: готово, "
+            "flattened_bases.shape=%s.", flattened.shape,
+        )
         return {
             'center_indices': centers,
             'pairs': pairs,
@@ -183,36 +215,3 @@ class NotebookStagedPipeline:
             'labels': labels,
             'flattened_bases': flattened,
         }
-
-
-if __name__ == "__main__":
-    print("=== Legacy Notebook Pipeline Demo ===\n")
-    import numpy as np
-    np.random.seed(42)
-
-    X = np.random.randn(100, 256)
-
-    # 1. Canonical pipeline (recommended)
-    print("1. Canonical approach (use in production):")
-    pipeline_canon = NotebookStagedPipeline(n_subclasses=8, use_canonical_pair=True)
-    result = pipeline_canon.run_full_pipeline(X)
-    print(f"   Centers: {len(result['center_indices'])}")
-    print(f"   Pairs: {result['pairs'].shape}")
-    print(f"   Subspaces: {len(result['subspaces'])}")
-    print(f"   Flattened shape: {result['flattened_bases'].shape}")
-
-    # 2. Legacy NB4-5 approach (parity only)
-    print("\n2. Legacy NB4-5 approach (for parity tests):")
-    pipeline_legacy = NotebookStagedPipeline(
-        n_subclasses=8,
-        use_canonical_pair=False,
-        manual_pair_index=8,
-    )
-    trio_list = pipeline_legacy.run_nb4_per_vector_pairs(X)
-    print(f"   NB4 trio_list length: {len(trio_list)}")
-    print(f"   Example trio: {trio_list[8]}")
-
-    result_legacy = pipeline_legacy.run_full_pipeline(X)
-    print(f"   Pipeline completed with {len(result_legacy['subspaces'])} subspaces")
-
-    print("\n[OK] Demo completed!")

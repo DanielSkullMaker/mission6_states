@@ -4,9 +4,12 @@
 совместимую с Windows/Linux.
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,6 +67,10 @@ class DatasetConfig:
         """Преобразует root в Path и создаёт структуру путей."""
         self.root = Path(self.root).resolve()
         self._build_paths()
+        logger.debug(
+            "DatasetConfig: root=%s, classes=%s, n_subclasses=%d.",
+            self.root, self.classes, self.n_subclasses,
+        )
 
     def _build_paths(self) -> None:
         """Создаёт словарь путей для всех классов и этапов обработки."""
@@ -230,6 +237,7 @@ class DatasetConfig:
         if stages is None:
             stages = ["raw", "resized", "centered", "vectors", "subclasses"]
 
+        logger.info("DatasetConfig.create_directories: stages=%s, root=%s.", stages, self.root)
         for cls in self.classes + ["test"]:
             for stage in stages:
                 if stage in self.paths[cls]:
@@ -255,46 +263,3 @@ class DatasetConfig:
             f"  n_features={self.n_features}\n"
             f")"
         )
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация DatasetConfig ===\n")
-
-    # 1. Windows путь
-    print("1. Windows конфигурация:")
-    config_win = DatasetConfig(root=r"C:\mission_6states\data")
-    print(f"   Root: {config_win.root}")
-    print(f"   Glioma raw: {config_win.paths['glioma']['raw']}")
-    print(f"   Test vectors: {config_win.paths['test']['vectors']}")
-
-    # 2. Linux/macOS путь
-    print("\n2. Linux/macOS конфигурация:")
-    config_unix = DatasetConfig(root="/home/user/datasets/brain_mri")
-    print(f"   Root: {config_unix.root}")
-    print(f"   Meningioma centered: {config_unix.paths['meningioma']['centered']}")
-
-    # 3. Получение путей к CSV
-    print("\n3. Пути к CSV файлам:")
-    csv_path = config_win.get_vector_csv_path("glioma", "horizontal")
-    print(f"   Glioma horizontal vectors: {csv_path}")
-
-    subclass_path = config_win.get_subclass_bases_path("pituitary")
-    print(f"   Pituitary subclass bases: {subclass_path}")
-
-    # 4. Получение списка изображений
-    print("\n4. Пути к изображениям:")
-    image_paths = config_win.get_image_paths("glioma", "resized", count=3)
-    for path in image_paths:
-        print(f"   {path}")
-
-    # 5. Свойства
-    print("\n5. Параметры конфигурации:")
-    print(f"   Размерность вектора: {config_win.n_features}")
-    print(f"   Всего подклассов: {config_win.total_subclasses}")
-
-    # 6. Создание директорий (dry-run)
-    print("\n6. Создание структуры директорий:")
-    print(f"   Можно вызвать: config.create_directories()")
-    print(f"   Будет создано: {len(config_win.classes) + 1} классов × 5 этапов")
-
-    print("\n✓ Все демонстрационные проверки завершены!")

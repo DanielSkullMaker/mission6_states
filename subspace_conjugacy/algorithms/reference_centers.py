@@ -26,8 +26,11 @@
   Требует initial_pair из фазы A.1 для инициализации centers = [idx1, idx2].
 """
 
+import logging
 from typing import List, Optional, Tuple
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.core.metrics import conjugate_criterion
@@ -137,8 +140,17 @@ class ReferenceCenterBuilder:
         """
         X_arr = self._validate_input(X)
         n_samples, n_features = X_arr.shape
+        logger.info(
+            "ReferenceCenterBuilder.fit: A.2-A.3 старт, initial_pair=%s, "
+            "n_subclasses=%d, %d векторов доступно.",
+            initial_pair, self.n_subclasses, n_samples,
+        )
 
         if n_samples < self.n_subclasses:
+            logger.error(
+                "ReferenceCenterBuilder.fit: недостаточно векторов (%d < %d).",
+                n_samples, self.n_subclasses,
+            )
             raise ValueError(
                 f"Недостаточно векторов: требуется минимум {self.n_subclasses}, "
                 f"получено {n_samples}."
@@ -159,6 +171,10 @@ class ReferenceCenterBuilder:
             remaining = [i for i in range(n_samples) if i not in centers]
 
             if not remaining:
+                logger.error(
+                    "ReferenceCenterBuilder.fit: кандидаты закончились на %d/%d центрах.",
+                    len(centers), self.n_subclasses,
+                )
                 raise RuntimeError(
                     f"Недостаточно уникальных векторов для {self.n_subclasses} центров."
                 )
@@ -176,6 +192,12 @@ class ReferenceCenterBuilder:
             # 4. Выбираем вектор с МИНИМАЛЬНЫМ R (наименее сопряжённый)
             min_r_idx = np.argmin(r_values)
             next_center = remaining[min_r_idx]
+            logger.debug(
+                "ReferenceCenterBuilder.fit: центр %d/%d -> вектор %d "
+                "(R=%.6f, базис Y k=%d, кандидатов было %d).",
+                len(centers) + 1, self.n_subclasses, next_center,
+                float(r_values[min_r_idx]), Y.shape[1], len(remaining),
+            )
 
             # 5. Добавляем найденный центр
             centers.append(next_center)
@@ -183,6 +205,10 @@ class ReferenceCenterBuilder:
         self.center_indices_ = np.array(centers, dtype=int)
         self.r_values_history_ = r_history
         self.is_fitted_ = True
+        logger.info(
+            "ReferenceCenterBuilder.fit: A.2-A.3 готово, центры=%s.",
+            list(self.center_indices_),
+        )
 
         return self
 
@@ -245,6 +271,7 @@ class ReferenceCenterBuilder:
     def _check_is_fitted(self) -> None:
         """Проверяет, был ли вызван fit()."""
         if not self.is_fitted_:
+            logger.error("ReferenceCenterBuilder: обращение к результатам до fit().")
             raise RuntimeError(
                 "Модель не обучена. Вызовите fit(X, initial_pair) перед использованием."
             )
@@ -256,91 +283,3 @@ class ReferenceCenterBuilder:
                 f"centers={list(self.center_indices_)})"
             )
         return f"ReferenceCenterBuilder(n_subclasses={self.n_subclasses}, not fitted)"
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация ReferenceCenterBuilder (теория A.2-A.3) ===\n")
-    np.random.seed(42)
-
-    # 1. Базовый пример с фазами A.1 + A.2-A.3
-    print("1. Полный цикл: A.1 (пара) → A.2-A.3 (центры):")
-    X_small = np.random.randn(50, 64)
-
-    # Фаза A.1: глобальная пара
-    try:
-        from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
-        pair_finder = GlobalMinCosinePairFinder()
-        pair_finder.fit(X_small)
-        initial_pair = pair_finder.pair_indices_
-        print(f"   A.1: Найдена начальная пара: {initial_pair}")
-    except ImportError:
-        # Fallback: вручную выбираем пару
-        initial_pair = (0, 1)
-        print(f"   A.1 [Fallback]: Используем пару {initial_pair}")
-
-    # Фаза A.2-A.3: остальные центры
-    builder = ReferenceCenterBuilder(n_subclasses=8, reg_param=1e-8)
-    builder.fit(X_small, initial_pair, store_history=True)
-
-    centers = builder.center_indices_
-    print(f"   A.2-A.3: Найдено центров: {len(centers)}")
-    print(f"   Индексы центров: {list(centers)}")
-
-    # 2. Проверка растущего базиса
-    print("\n2. Проверка инварианта «растущий базис Y»:")
-    print(f"   Начало: Y (N, 2) из пары {initial_pair}")
-    if builder.r_values_history_:
-        for step, r_vals in enumerate(builder.r_values_history_, start=3):
-            print(f"   Шаг {step}: Y (N, {step-1}) → {len(r_vals)} кандидатов, "
-                  f"min(R)={r_vals.min():.4f}, выбран центр {centers[step-1]}")
-
-    # 3. Извлечение матрицы центров
-    print("\n3. Извлечение векторов-центров:")
-    centers_matrix = builder.get_center_vectors(X_small)
-    print(f"   Матрица центров: shape={centers_matrix.shape}")
-    print(f"   Первый центр (норма): {np.linalg.norm(centers_matrix[0]):.2f}")
-
-    # 4. Проверка уникальности центров
-    print("\n4. Проверка уникальности:")
-    assert len(set(centers)) == len(centers), "Центры должны быть уникальными"
-    print(f"   ✓ Все {len(centers)} центров уникальны")
-
-    # 5. Большой батч
-    print("\n5. Производительность на большом батче:")
-    import time
-    X_large = np.random.randn(1000, 512)
-    pair_large = (10, 65)  # Предвычисленная пара
-
-    start = time.perf_counter()
-    builder_large = ReferenceCenterBuilder(n_subclasses=16)
-    builder_large.fit(X_large, pair_large)
-    elapsed = time.perf_counter() - start
-
-    print(f"   Векторов: {X_large.shape[0]}, размерность: {X_large.shape[1]}")
-    print(f"   Подклассов: {builder_large.n_subclasses}")
-    print(f"   Время выполнения: {elapsed:.3f}s")
-    print(f"   Центры: {list(builder_large.center_indices_[:5])}...")
-
-    # 6. Краевой случай: n_subclasses = 2
-    print("\n6. Краевой случай — n_subclasses=2 (только initial_pair):")
-    builder_two = ReferenceCenterBuilder(n_subclasses=2)
-    builder_two.fit(X_small, initial_pair)
-    print(f"   Центры: {list(builder_two.center_indices_)}")
-    assert list(builder_two.center_indices_) == list(initial_pair), "Должна быть только пара"
-    print(f"   ✓ Возвращена только initial_pair (цикл while не выполнился)")
-
-    # 7. Проверка ошибок
-    print("\n7. Проверка валидации:")
-    try:
-        builder_bad = ReferenceCenterBuilder(n_subclasses=100)
-        builder_bad.fit(X_small, initial_pair)  # 50 < 100
-    except ValueError as err:
-        print(f"   [Перехвачена ошибка M < n_subclasses]: {err}")
-
-    try:
-        builder.fit(X_small, initial_pair=(0, 0))  # Одинаковые индексы
-    except ValueError as err:
-        print(f"   [Перехвачена ошибка idx1==idx2]: {err}")
-
-    print("\n✓ Все демонстрационные проверки завершены!")
-    print(f"\n{builder}")

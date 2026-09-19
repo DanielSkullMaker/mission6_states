@@ -5,12 +5,15 @@
 """
 
 import json
+import logging
 import os
 import pickle
 from pathlib import Path
 import tempfile
 from typing import Any, Dict, List, Union
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def save_model(model: Any, filepath: Union[str, Path]) -> None:
@@ -31,6 +34,7 @@ def save_model(model: Any, filepath: Union[str, Path]) -> None:
         При ошибках записи на диск.
     """
     if getattr(model, "is_fitted_", False) is not True:
+        logger.error("save_model: попытка сохранить необученную модель %r.", model)
         raise RuntimeError(
             "Попытка сохранить необученную модель. "
             "Вызовите метод 'fit' перед сохранением."
@@ -43,7 +47,10 @@ def save_model(model: Any, filepath: Union[str, Path]) -> None:
         with open(path, "wb") as f:
             pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
     except Exception as err:
+        logger.error("save_model: ошибка записи '%s': %s", path, err)
         raise IOError(f"Не удалось сохранить модель в файл '{path}': {err}") from err
+
+    logger.info("save_model: модель %s сохранена в %s.", type(model).__name__, path)
 
 
 def load_model(filepath: Union[str, Path]) -> Any:
@@ -68,14 +75,18 @@ def load_model(filepath: Union[str, Path]) -> Any:
     """
     path = Path(filepath)
     if not path.exists():
+        logger.error("load_model: файл не найден '%s'.", path)
         raise FileNotFoundError(f"Файл модели не найден по пути: '{path}'.")
 
     try:
         with open(path, "rb") as f:
             model = pickle.load(f)
-        return model
     except Exception as err:
+        logger.error("load_model: ошибка чтения '%s': %s", path, err)
         raise IOError(f"Ошибка при загрузке модели из файла '{path}': {err}") from err
+
+    logger.info("load_model: модель %s загружена из %s.", type(model).__name__, path)
+    return model
 
 
 def export_subspaces_npz(model: Any, filepath: Union[str, Path]) -> None:
@@ -91,6 +102,7 @@ def export_subspaces_npz(model: Any, filepath: Union[str, Path]) -> None:
         Путь к сохраняемому архиву (например, 'subspaces.npz').
     """
     if not hasattr(model, "subspaces_") or not model.subspaces_:
+        logger.error("export_subspaces_npz: модель %r не содержит subspaces_.", model)
         raise ValueError("Модель не содержит обученных подпространств 'subspaces_'.")
 
     path = Path(filepath)
@@ -103,6 +115,10 @@ def export_subspaces_npz(model: Any, filepath: Union[str, Path]) -> None:
             export_dict[key] = Y_s
 
     np.savez_compressed(path, **export_dict)
+    logger.info(
+        "export_subspaces_npz: %d подпространств (%d классов) сохранено в %s.",
+        len(export_dict), len(model.subspaces_), path,
+    )
 
 
 def import_subspaces_npz(filepath: Union[str, Path]) -> Dict[str, List[np.ndarray]]:
@@ -120,6 +136,7 @@ def import_subspaces_npz(filepath: Union[str, Path]) -> Dict[str, List[np.ndarra
     """
     path = Path(filepath)
     if not path.exists():
+        logger.error("import_subspaces_npz: файл не найден '%s'.", path)
         raise FileNotFoundError(f"Архив подпространств не найден: '{path}'.")
 
     data = np.load(path)
@@ -136,6 +153,9 @@ def import_subspaces_npz(filepath: Union[str, Path]) -> Dict[str, List[np.ndarra
                 subspaces[cls_name] = []
             subspaces[cls_name].append(Y_s)
 
+    logger.info(
+        "import_subspaces_npz: загружено %d классов из %s.", len(subspaces), path,
+    )
     return subspaces
 
 
@@ -154,6 +174,7 @@ def export_subspaces_json(
         Количество отступов для форматирования JSON.
     """
     if not hasattr(model, "subspaces_") or not model.subspaces_:
+        logger.error("export_subspaces_json: модель %r не содержит subspaces_.", model)
         raise ValueError("Модель не содержит подпространств для экспорта.")
 
     path = Path(filepath)
@@ -178,6 +199,10 @@ def export_subspaces_json(
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(json_payload, f, ensure_ascii=False, indent=indent)
+    logger.info(
+        "export_subspaces_json: %d классов сохранено в %s.",
+        len(json_payload["subspaces"]), path,
+    )
 
 
 def import_subspaces_json(filepath: Union[str, Path]) -> Dict[str, Any]:
@@ -195,6 +220,7 @@ def import_subspaces_json(filepath: Union[str, Path]) -> Dict[str, Any]:
     """
     path = Path(filepath)
     if not path.exists():
+        logger.error("import_subspaces_json: файл не найден '%s'.", path)
         raise FileNotFoundError(f"JSON файл не найден: '{path}'.")
 
     with open(path, "r", encoding="utf-8") as f:
@@ -207,72 +233,8 @@ def import_subspaces_json(filepath: Union[str, Path]) -> Dict[str, Any]:
         ]
 
     raw_payload["subspaces"] = subspaces_converted
+    logger.info(
+        "import_subspaces_json: загружено %d классов из %s.",
+        len(subspaces_converted), path,
+    )
     return raw_payload
-
-
-if __name__ == "__main__":
-    print("=== Запуск тестов и демонстрации модуля persistence.py ===\n")
-    np.random.seed(42)
-
-    # Заглушка модели для тестирования сохранения
-    class MockSubspaceClassifier:
-        def __init__(self):
-            self.n_subclasses = 2
-            self.n_features_in_ = 16
-            self.is_fitted_ = True
-            self.classes_ = np.array(["Glioma", "Meningioma"])
-            # Две матрицы признаков 16x3 для каждого класса
-            self.subspaces_ = {
-                "Glioma": [np.random.randn(16, 3), np.random.randn(16, 3)],
-                "Meningioma": [np.random.randn(16, 3), np.random.randn(16, 3)],
-            }
-
-    mock_model = MockSubspaceClassifier()
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        dir_path = Path(temp_dir)
-
-        # 1. Тестирование Pickle (save_model / load_model)
-        print("1. Тестирование сохранения и загрузки Pickle:")
-        pkl_path = dir_path / "model.pkl"
-        save_model(mock_model, pkl_path)
-        assert pkl_path.exists(), "Файл Pickle не был создан"
-
-        loaded_model = load_model(pkl_path)
-        assert loaded_model.is_fitted_ is True
-        assert loaded_model.n_features_in_ == 16
-        print("   Успешно восстановлена модель из Pickle.")
-
-        # 1.1 Перехват ошибки при сохранении необученной модели
-        mock_model.is_fitted_ = False
-        try:
-            save_model(mock_model, pkl_path)
-        except RuntimeError as err:
-            print(f"   [Перехвачена ожидаемая ошибка]: {err}")
-        mock_model.is_fitted_ = True
-
-        # 2. Тестирование экспорта и импорта .npz
-        print("\n2. Тестирование архивации подпространств в .npz:")
-        npz_path = dir_path / "subspaces.npz"
-        export_subspaces_npz(mock_model, npz_path)
-        assert npz_path.exists(), "Файл .npz не был создан"
-
-        loaded_subspaces_npz = import_subspaces_npz(npz_path)
-        assert "Glioma" in loaded_subspaces_npz
-        assert len(loaded_subspaces_npz["Glioma"]) == 2
-        assert loaded_subspaces_npz["Glioma"][0].shape == (16, 3)
-        print("   Успешно импортированы матрицы Y_s из формата .npz.")
-
-        # 3. Тестирование экспорта и импорта JSON
-        print("\n3. Тестирование сохранения подпространств в JSON:")
-        json_path = dir_path / "subspaces.json"
-        export_subspaces_json(mock_model, json_path)
-        assert json_path.exists(), "Файл JSON не был создан"
-
-        json_data = import_subspaces_json(json_path)
-        assert json_data["n_features_in"] == 16
-        assert "Meningioma" in json_data["subspaces"]
-        assert isinstance(json_data["subspaces"]["Meningioma"][0], np.ndarray)
-        print("   Успешно прочитан и распарсен JSON файл с метаданными.")
-
-    print("\n Все тесты сохранения и загрузки моделей пройдены!")

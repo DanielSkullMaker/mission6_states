@@ -13,6 +13,7 @@ FursovClusterer (фазы A.1->A.3->B.1->B.2, algorithms/fursov_clusterer.py) �
 п.1-2: канон как единственный путь, без дублирования conjugate_criterion).
 """
 
+import logging
 from typing import Dict, List, Optional, Union
 import numpy as np
 from sklearn.base import ClassifierMixin
@@ -20,6 +21,8 @@ from sklearn.base import ClassifierMixin
 from subspace_conjugacy.algorithms.fursov_clusterer import FursovClusterer
 from subspace_conjugacy.core.metrics import conjugate_criterion
 from subspace_conjugacy.models.base import BaseSubspaceEstimator
+
+logger = logging.getLogger(__name__)
 
 ClassLabel = Union[int, str, float]
 
@@ -37,7 +40,9 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         классификатора (refactoring_plan.txt, раздел 6, п.9).
     growth_strategy : {"default", "master"}, default="default"
         Стратегия наполнения кластеров в FursovClusterer (Фаза B.2):
-        "default" — argmax R(x, Y_s); "master" — ratio к среднему (NB7).
+        "default" — argmax R(x, Y_s); "master" — ratio к среднему,
+        канон-совместимая аппроксимация идеи NB7, не побитовая реплика
+        (см. algorithms/subclass_growth.py, docstring модуля).
     reg_param : float, default=1e-8
         Коэффициент регуляризации при обращении матрицы Грама.
 
@@ -95,10 +100,21 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         X_clean, y_clean = self._validate_data(X, y)
 
         if y_clean is None:
+            logger.error("SubspaceConjugacyClassifier.fit: метки y не переданы.")
             raise ValueError("Для обучения классификатора необходимы метки y.")
 
         self.classes_ = np.unique(y_clean)
+        logger.info(
+            "SubspaceConjugacyClassifier.fit: старт, %d объектов, классы=%s, "
+            "n_subclasses=%d, growth_strategy=%s.",
+            X_clean.shape[0], list(self.classes_), self.n_subclasses,
+            self.growth_strategy,
+        )
         if len(self.classes_) < 2:
+            logger.error(
+                "SubspaceConjugacyClassifier.fit: найдено %d класс(ов), нужно минимум 2.",
+                len(self.classes_),
+            )
             raise ValueError(
                 "Для классификации требуется как минимум 2 класса."
             )
@@ -108,7 +124,15 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
 
         for cls in self.classes_:
             X_cls = X_clean[y_clean == cls]
+            logger.info(
+                "SubspaceConjugacyClassifier.fit: класс '%s' — кластеризация %d объектов.",
+                cls, X_cls.shape[0],
+            )
             if X_cls.shape[0] < self.n_subclasses:
+                logger.error(
+                    "SubspaceConjugacyClassifier.fit: класс '%s' содержит %d объектов "
+                    "< n_subclasses=%d.", cls, X_cls.shape[0], self.n_subclasses,
+                )
                 raise ValueError(
                     f"Класс '{cls}' содержит {X_cls.shape[0]} объектов, "
                     f"что меньше числа подклассов ({self.n_subclasses})."
@@ -122,9 +146,18 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
             )
             clusterer.fit(X_cls)
             self.subspaces_[cls] = clusterer.subspaces_
+            logger.debug(
+                "SubspaceConjugacyClassifier.fit: класс '%s' готов, %d подпространств.",
+                cls, len(clusterer.subspaces_),
+            )
 
         self.flat_subclass_labels_ = self._build_flat_subclass_labels()
         self.is_fitted_ = True
+        logger.info(
+            "SubspaceConjugacyClassifier.fit: готово, %d классов x %d подклассов = "
+            "%d подпространств всего.",
+            len(self.classes_), self.n_subclasses, len(self.flat_subclass_labels_),
+        )
         return self
 
     def fit_from_subclass_bases(
@@ -155,12 +188,17 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
             Если словарь пуст или базисы имеют разную размерность N.
         """
         if not subspaces_by_class:
+            logger.error("SubspaceConjugacyClassifier.fit_from_subclass_bases: словарь пуст.")
             raise ValueError("Словарь subspaces_by_class пуст.")
 
         n_features_set = {
             Y.shape[0] for bases in subspaces_by_class.values() for Y in bases
         }
         if len(n_features_set) != 1:
+            logger.error(
+                "SubspaceConjugacyClassifier.fit_from_subclass_bases: "
+                "разные N среди базисов: %s.", sorted(n_features_set),
+            )
             raise ValueError(
                 "Все базисы всех классов должны иметь одинаковую размерность "
                 f"признаков N. Получено значений N: {sorted(n_features_set)}."
@@ -173,6 +211,11 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         self.n_features_in_ = n_features_set.pop()
         self.flat_subclass_labels_ = self._build_flat_subclass_labels()
         self.is_fitted_ = True
+        logger.info(
+            "SubspaceConjugacyClassifier.fit_from_subclass_bases: загружено %d классов "
+            "(без повторной кластеризации), N=%d.",
+            len(self.classes_), self.n_features_in_,
+        )
         return self
 
     def _build_flat_subclass_labels(self) -> np.ndarray:
@@ -217,6 +260,10 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
             # Выбираем максимальную сопряженность среди всех подклассов
             R_matrix[:, cls_idx] = np.max(r_subclasses, axis=1)
 
+        logger.debug(
+            "SubspaceConjugacyClassifier.predict_r_matrix: %d объектов x %d классов.",
+            M, n_classes,
+        )
         return R_matrix
 
     def predict_r_matrix_flat(self, X: np.ndarray) -> np.ndarray:
@@ -245,7 +292,12 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
             for cls in self.classes_
             for Y_s in self.subspaces_[cls]
         ]
-        return np.column_stack(columns)
+        R_flat = np.column_stack(columns)
+        logger.debug(
+            "SubspaceConjugacyClassifier.predict_r_matrix_flat: %d объектов x "
+            "%d подпространств.", R_flat.shape[0], R_flat.shape[1],
+        )
+        return R_flat
 
     def predict_subclass(self, X: np.ndarray) -> np.ndarray:
         """Определяет глобальный индекс подкласса (Фаза C: flat argmax).
@@ -266,7 +318,13 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
             Индексы подклассов (M,) в диапазоне [0, total_subclasses).
         """
         R_flat = self.predict_r_matrix_flat(X)
-        return np.argmax(R_flat, axis=1)
+        subclass_indices = np.argmax(R_flat, axis=1)
+        logger.debug(
+            "SubspaceConjugacyClassifier.predict_subclass: %d объектов -> подклассы %s.",
+            len(subclass_indices),
+            np.bincount(subclass_indices, minlength=R_flat.shape[1]).tolist(),
+        )
+        return subclass_indices
 
     def predict_confidence_ratio(self, X: np.ndarray) -> np.ndarray:
         """Показатель уверенности предсказания (NB8: proportion).
@@ -294,6 +352,10 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         n_subspaces = R_flat.shape[1]
 
         if n_subspaces < 2:
+            logger.error(
+                "SubspaceConjugacyClassifier.predict_confidence_ratio: "
+                "недостаточно подпространств (%d < 2).", n_subspaces,
+            )
             raise ValueError(
                 "predict_confidence_ratio требует минимум 2 подпространства "
                 f"для сравнения, получено {n_subspaces}."
@@ -303,10 +365,22 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         mean_others = (np.sum(R_flat, axis=1) - best) / (n_subspaces - 1)
 
         # Защита от деления на ноль, если все "остальные" R равны нулю.
+        n_degenerate = int(np.sum(mean_others <= 0))
+        if n_degenerate > 0:
+            logger.warning(
+                "SubspaceConjugacyClassifier.predict_confidence_ratio: у %d/%d "
+                "объектов mean_others<=0 — используется eps вместо деления на ноль.",
+                n_degenerate, len(mean_others),
+            )
         mean_others_safe = np.where(
             mean_others > 0, mean_others, np.finfo(np.float64).eps
         )
-        return best / mean_others_safe - 1
+        proportion = best / mean_others_safe - 1
+        logger.debug(
+            "SubspaceConjugacyClassifier.predict_confidence_ratio: mean=%.4f, "
+            "min=%.4f, max=%.4f.", proportion.mean(), proportion.min(), proportion.max(),
+        )
+        return proportion
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Нормализует показатели сопряженности в вероятности через Softmax.
@@ -344,85 +418,9 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         """
         R_matrix = self.predict_r_matrix(X)
         best_indices = np.argmax(R_matrix, axis=1)
-        return self.classes_[best_indices]
-
-
-if __name__ == "__main__":
-    print("=== Запуск тестов и демонстрации classifier.py ===\n")
-    np.random.seed(42)
-
-    # Синтетические параметры датасета (3 класса МРТ: Glioma, Meningioma, Pituitary)
-    n_samples_per_class = 20
-    n_features = 64
-    n_subclasses = 4
-    class_names = np.array(["Glioma", "Meningioma", "Pituitary"])
-
-    # 1. Генерация синтетического датасета
-    X_list, y_list = [], []
-    for idx, cls_name in enumerate(class_names):
-        # Добавляем смещение центроида для каждого класса
-        cls_data = np.random.randn(n_samples_per_class, n_features) + (idx * 4.0)
-        X_list.append(cls_data)
-        y_list.append(np.full(n_samples_per_class, cls_name))
-
-    X_train = np.vstack(X_list)
-    y_train = np.concatenate(y_list)
-
-    # 2. Обучение классификатора (канонический FursovClusterer под капотом)
-    clf = SubspaceConjugacyClassifier(n_subclasses=n_subclasses, freeze_basis_at=2)
-    clf.fit(X_train, y_train)
-
-    print("1. Модель успешно обучена:")
-    print(f"   Обнаруженные классы: {clf.classes_}")
-    print(f"   Количество подклассов на класс: {clf.n_subclasses}")
-    print(f"   Всего подпространств (flat): {len(clf.flat_subclass_labels_)}")
-
-    # 3. Тестирование предсказания на новых данных
-    X_test = np.vstack([
-        np.random.randn(2, n_features) + 0.0,   # Тест для Glioma
-        np.random.randn(2, n_features) + 4.0,   # Тест для Meningioma
-        np.random.randn(2, n_features) + 8.0,   # Тест для Pituitary
-    ])
-    y_true = np.array(["Glioma", "Glioma", "Meningioma", "Meningioma", "Pituitary", "Pituitary"])
-
-    # Расчет матрицы сопряженности R (по классам)
-    R_mat = clf.predict_r_matrix(X_test)
-    print("\n2. Матрица показателей сопряженности R(x, Y) (размерность M x C):")
-    print(R_mat.round(4))
-
-    # Фаза C: плоский argmax по всем подпространствам (NB8)
-    flat_subclass = clf.predict_subclass(X_test)
-    print(f"\n3. Плоские индексы подклассов (0..{len(clf.flat_subclass_labels_) - 1}): {flat_subclass}")
-    print(f"   Классы-владельцы подклассов: {clf.flat_subclass_labels_[flat_subclass]}")
-
-    # Показатель уверенности (NB8: proportion)
-    confidence = clf.predict_confidence_ratio(X_test)
-    print(f"\n4. Confidence ratio (NB8 proportion): {confidence.round(4)}")
-
-    # Расчет вероятностей Softmax
-    probs = clf.predict_proba(X_test)
-    print("\n5. Вероятности классов (Softmax):")
-    print(probs.round(4))
-    assert np.allclose(np.sum(probs, axis=1), 1.0), "Сумма вероятностей должна быть равна 1.0"
-
-    # Итоговое предсказание классов
-    preds = clf.predict(X_test)
-    print(f"\n6. Предсказанные метки: {preds}")
-    print(f"   Истинные метки:      {y_true}")
-
-    # Проверка точности
-    accuracy = clf.score(X_test, y_true)
-    print(f"\n7. Accuracy на тестовом микробаче: {accuracy * 100:.2f}%")
-
-    assert preds.shape == y_true.shape
-    assert set(preds).issubset(set(class_names))
-
-    # 8. fit_from_subclass_bases: сборка классификатора без повторной кластеризации
-    print("\n8. fit_from_subclass_bases (загрузка готовых базисов):")
-    clf2 = SubspaceConjugacyClassifier(n_subclasses=n_subclasses)
-    clf2.fit_from_subclass_bases(clf.subspaces_)
-    preds2 = clf2.predict(X_test)
-    assert np.array_equal(preds, preds2), "Результат должен совпадать с fit()"
-    print("   Предсказания совпадают с исходной моделью: OK")
-
-    print("\n Все проверки классификатора успешно пройдены!")
+        y_pred = self.classes_[best_indices]
+        logger.info(
+            "SubspaceConjugacyClassifier.predict: %d объектов -> распределение по классам %s.",
+            len(y_pred), dict(zip(*np.unique(y_pred, return_counts=True))),
+        )
+        return y_pred

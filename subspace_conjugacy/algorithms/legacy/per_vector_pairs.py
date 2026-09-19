@@ -20,8 +20,11 @@ NB4 Алгоритм (4_1_Fursov_vector_processing):
   - Production code
 """
 
+import logging
 from typing import List, Tuple
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.core.metrics import cosine_similarity_matrix
@@ -64,6 +67,9 @@ def compute_per_vector_pairs_nb4(
     В NB5 вручную выбирается одна из этих пар (например, индекс 8).
     Канонический алгоритм (global_pair.py) делает это автоматически.
     """
+    logger.debug(
+        "compute_per_vector_pairs_nb4 [LEGACY NB4]: старт, X.shape=%s.", X.shape,
+    )
     X_arr = np.asarray(X, dtype=np.float64)
     n_samples = X_arr.shape[0]
 
@@ -78,6 +84,10 @@ def compute_per_vector_pairs_nb4(
         min_cos_value = float(sim_matrix[i, argmin_j])
         trio_list.append((i, argmin_j, min_cos_value))
 
+    logger.debug(
+        "compute_per_vector_pairs_nb4 [LEGACY NB4]: готово, %d троек построено.",
+        len(trio_list),
+    )
     return trio_list
 
 
@@ -110,10 +120,18 @@ def extract_pair_from_trio_list(
     >>> # Эмуляция: в NB5 вручную взяли 8-ю тройку
     """
     if index < 0 or index >= len(trio_list):
+        logger.error(
+            "extract_pair_from_trio_list [LEGACY NB4]: индекс %d вне диапазона "
+            "[0, %d].", index, len(trio_list) - 1,
+        )
         raise ValueError(
             f"Индекс {index} вне диапазона [0, {len(trio_list)-1}]."
         )
 
+    logger.debug(
+        "extract_pair_from_trio_list [LEGACY NB4]: ручной выбор индекса %d -> %s.",
+        index, trio_list[index],
+    )
     return trio_list[index]
 
 
@@ -145,78 +163,13 @@ def find_global_min_from_trio_list(
     из trio_list, но прямое вычисление (global_pair.py) эффективнее.
     """
     if not trio_list:
+        logger.error("find_global_min_from_trio_list [LEGACY NB4]: trio_list пуст.")
         raise ValueError("trio_list пуст.")
 
     # Находим тройку с минимальным cos_value
     min_trio = min(trio_list, key=lambda t: t[2])
+    logger.debug(
+        "find_global_min_from_trio_list [LEGACY NB4]: минимум среди %d троек -> %s.",
+        len(trio_list), min_trio,
+    )
     return min_trio
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация NB4 Legacy: Per-Vector Pairs ===\n")
-    np.random.seed(42)
-
-    # 1. Вычисление trio_list
-    print("1. Вычисление trio_list (NB4 алгоритм):")
-    X_small = np.random.randn(10, 64)
-    trio_list = compute_per_vector_pairs_nb4(X_small)
-
-    print(f"   Количество троек: {len(trio_list)}")
-    print(f"   Первые 3 тройки:")
-    for i in range(3):
-        idx, argmin_j, cos_val = trio_list[i]
-        print(f"     [{i}] Вектор {idx} → наиболее непохожий: {argmin_j}, cos={cos_val:.4f}")
-
-    # 2. Ручной выбор пары (эмуляция NB5)
-    print("\n2. Эмуляция ручного выбора в NB5 (index=8):")
-    if len(trio_list) > 8:
-        idx1, idx2, cos = extract_pair_from_trio_list(trio_list, index=8)
-        print(f"   Выбрана пара из trio_list[8]: ({idx1}, {idx2}), cos={cos:.4f}")
-    else:
-        print("   [Пропущено: недостаточно векторов для index=8]")
-
-    # 3. Глобальный минимум из trio_list
-    print("\n3. Глобальный минимум среди всех троек (эквивалент canonical A.1):")
-    global_idx1, global_idx2, global_cos = find_global_min_from_trio_list(trio_list)
-    print(f"   Глобальная пара: ({global_idx1}, {global_idx2}), cos={global_cos:.4f}")
-
-    # 4. Сравнение с canonical GlobalMinCosinePairFinder
-    print("\n4. Сравнение с canonical алгоритмом (global_pair.py):")
-    try:
-        from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
-
-        finder = GlobalMinCosinePairFinder()
-        finder.fit(X_small)
-        canonical_idx1, canonical_idx2 = finder.pair_indices_
-        canonical_cos = finder.similarity_value_
-
-        print(f"   Canonical пара: ({canonical_idx1}, {canonical_idx2}), cos={canonical_cos:.4f}")
-
-        # Проверка эквивалентности
-        legacy_pair = tuple(sorted([global_idx1, global_idx2]))
-        canonical_pair = tuple(sorted([canonical_idx1, canonical_idx2]))
-
-        if legacy_pair == canonical_pair:
-            print(f"   ✓ Legacy trio_list и canonical дают одинаковый результат!")
-        else:
-            print(f"   ⚠ Пары отличаются (возможно из-за равных cos значений)")
-
-    except ImportError:
-        print("   [Пропущено: global_pair.py недоступен]")
-
-    # 5. Производительность
-    print("\n5. Производительность на большом батче:")
-    import time
-    X_large = np.random.randn(500, 512)
-
-    start = time.perf_counter()
-    trio_list_large = compute_per_vector_pairs_nb4(X_large)
-    elapsed = time.perf_counter() - start
-
-    print(f"   Векторов: {X_large.shape[0]}")
-    print(f"   Время: {elapsed:.3f}s")
-    print(f"   Размер trio_list: {len(trio_list_large)} троек")
-
-    print("\n⚠ Напоминание: Этот алгоритм НЕ используется в production.")
-    print("   Только для parity тестов с NB4.")
-    print("\n✓ Демонстрация завершена!")

@@ -4,8 +4,11 @@
 базисных матриц подклассов и гиперпараметров алгоритмов.
 """
 
+import logging
 from typing import Any, List, Optional, Tuple, Union
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def check_array_X(
@@ -45,30 +48,37 @@ def check_array_X(
     try:
         X_arr = np.asarray(X, dtype=dtype)
     except Exception as err:
+        logger.error("check_array_X: не удалось привести %s к np.ndarray: %s.", type(X), err)
         raise TypeError(
             f"Не удалось привести объект типа {type(X)} к массиву NumPy."
         ) from err
 
     if X_arr.size == 0:
+        logger.error("check_array_X: передана пустая матрица.")
         raise ValueError("Передана пустая матрица признаков X.")
 
     if X_arr.ndim == 1:
         if not accept_1d:
+            logger.error("check_array_X: 1D массив запрещён (accept_1d=False).")
             raise ValueError(
                 "Одномерные массивы не допускаются. Передайте 2D матрицу."
             )
         X_arr = X_arr.reshape(1, -1)
     elif X_arr.ndim != 2:
+        logger.error("check_array_X: неверная размерность X.ndim=%d.", X_arr.ndim)
         raise ValueError(
             f"Ожидался 1D или 2D массив, получена размерность {X_arr.ndim}D."
         )
 
     if not allow_nan and np.isnan(X_arr).any():
+        logger.error("check_array_X: обнаружены NaN (allow_nan=False).")
         raise ValueError("Входная матрица X содержит недопустимые значения NaN.")
 
     if not allow_inf and np.isinf(X_arr).any():
+        logger.error("check_array_X: обнаружены Inf (allow_inf=False).")
         raise ValueError("Входная матрица X содержит недопустимые значения Inf.")
 
+    logger.debug("check_array_X: OK, shape=%s, dtype=%s.", X_arr.shape, X_arr.dtype)
     return X_arr
 
 
@@ -105,21 +115,28 @@ def check_X_y(
     try:
         y_arr = np.asarray(y)
     except Exception as err:
+        logger.error("check_X_y: не удалось привести y к np.ndarray: %s.", err)
         raise TypeError("Не удалось привести целевые метки y к np.ndarray.") from err
 
     if y_arr.ndim != 1:
         y_arr = np.squeeze(y_arr)
         if y_arr.ndim != 1:
+            logger.error("check_X_y: y.ndim=%d после squeeze, ожидался 1D.", y_arr.ndim)
             raise ValueError(
                 f"Целевые метки y должны образуют 1D вектор, получена {y_arr.ndim}D."
             )
 
     if X_arr.shape[0] != y_arr.shape[0]:
+        logger.error(
+            "check_X_y: несовпадение количества объектов X=%d, y=%d.",
+            X_arr.shape[0], y_arr.shape[0],
+        )
         raise ValueError(
             f"Несоответствие количества объектов: X содержит {X_arr.shape[0]} "
             f"строк, а y содержит {y_arr.shape[0]} меток."
         )
 
+    logger.debug("check_X_y: OK, X.shape=%s, y.shape=%s.", X_arr.shape, y_arr.shape)
     return X_arr, y_arr
 
 
@@ -160,6 +177,10 @@ def check_basis_matrix(
     N, k = Y_arr.shape
 
     if expected_n_features is not None and N != expected_n_features:
+        logger.error(
+            "check_basis_matrix: N=%d не совпадает с expected_n_features=%d.",
+            N, expected_n_features,
+        )
         raise ValueError(
             f"Число признаков в базисе Y ({N}) не совпадает "
             f"с ожидаемым ({expected_n_features})."
@@ -168,15 +189,26 @@ def check_basis_matrix(
     # Проверка на наличие нулевых столбцов в базисе
     col_norms = np.linalg.norm(Y_arr, axis=0)
     if np.any(col_norms < 1e-12):
+        logger.error(
+            "check_basis_matrix: найдены нулевые столбцы (col_norms=%s).",
+            col_norms.tolist(),
+        )
         raise ValueError("Базисная матрица Y содержит нулевые вектор-столбцы.")
 
     # Проверка вырожденности (число обусловленности матрицы Грама Y^T Y)
     gram = Y_arr.T @ Y_arr
     cond_num = np.linalg.cond(gram)
     if cond_num > max_condition_number:
-        # Не выбрасываем исключение, так как устойчивое обращение обрабатывается регуляризацией
-        pass
+        # Не выбрасываем исключение — устойчивое обращение обеспечивает
+        # регуляризация в core.metrics.compute_gram_inverse, но пользователю
+        # стоит знать, что базис близок к линейно зависимому.
+        logger.warning(
+            "check_basis_matrix: число обусловленности Y^T Y = %.3e превышает "
+            "порог %.3e — базис почти вырожден (близкие/коллинеарные "
+            "базисные векторы).", cond_num, max_condition_number,
+        )
 
+    logger.debug("check_basis_matrix: OK, N=%d, k=%d, cond=%.3e.", N, k, cond_num)
     return Y_arr
 
 
@@ -202,12 +234,14 @@ def check_hyperparameters(
         Если хотя бы один из параметров имеет недопустимое значение.
     """
     if not isinstance(n_subclasses, (int, np.integer)) or n_subclasses <= 0:
+        logger.error("check_hyperparameters: n_subclasses некорректен: %r.", n_subclasses)
         raise ValueError(
             f"Параметр n_subclasses должен быть целым положительным числом, "
             f"получено: {n_subclasses} (тип {type(n_subclasses)})."
         )
 
     if not isinstance(reg_param, (float, int, np.number)) or reg_param <= 0.0:
+        logger.error("check_hyperparameters: reg_param некорректен: %r.", reg_param)
         raise ValueError(
             f"Параметр reg_param должен быть строгим положительным float, "
             f"получено: {reg_param}."
@@ -215,10 +249,18 @@ def check_hyperparameters(
 
     if n_centers_init is not None:
         if not isinstance(n_centers_init, (int, np.integer)) or n_centers_init <= 0:
+            logger.error(
+                "check_hyperparameters: n_centers_init некорректен: %r.", n_centers_init,
+            )
             raise ValueError(
                 f"Параметр n_centers_init должен быть целым положительным числом, "
                 f"получено: {n_centers_init}."
             )
+
+    logger.debug(
+        "check_hyperparameters: OK, n_subclasses=%s, reg_param=%s, n_centers_init=%s.",
+        n_subclasses, reg_param, n_centers_init,
+    )
 
 
 def check_is_fitted(estimator: Any, attributes: Union[str, List[str]] = "is_fitted_") -> None:
@@ -245,85 +287,8 @@ def check_is_fitted(estimator: Any, attributes: Union[str, List[str]] = "is_fitt
 
     if not is_fitted:
         estimator_name = estimator.__class__.__name__
+        logger.error("check_is_fitted: '%s' не обучен (attributes=%s).", estimator_name, attributes)
         raise RuntimeError(
             f"Экземпляр модели '{estimator_name}' еще не обучен. Вызовите 'fit' "
             f"с соответствующими обучающими данными перед использованием методик предсказания."
         )
-
-
-if __name__ == "__main__":
-    print("=== Запуск тестов и самопроверки модуля validation.py ===\n")
-    np.random.seed(42)
-
-    # 1. Проверка валидации массива X
-    print("1. Тестирование check_array_X:")
-    X_valid = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-    X_arr = check_array_X(X_valid)
-    print(f"   Успешно преобразован список в 2D массив NumPy формы: {X_arr.shape}")
-    assert isinstance(X_arr, np.ndarray)
-
-    # 1.1 Перехват NaN в X
-    X_nan = [[1.0, np.nan], [3.0, 4.0]]
-    try:
-        check_array_X(X_nan)
-    except ValueError as err:
-        print(f"   [Перехвачена ожидаемая ошибка (NaN)]: {err}")
-
-    # 2. Проверка совместной валидации X и y
-    print("\n2. Тестирование check_X_y:")
-    X_raw = np.random.randn(10, 5)
-    y_raw = np.random.randint(0, 2, size=10)
-    X_out, y_out = check_X_y(X_raw, y_raw)
-    print(f"   Валидированы данные: X={X_out.shape}, y={y_out.shape}")
-    assert X_out.shape[0] == y_out.shape[0]
-
-    # 2.1 Перехват несоответствия длин X и y
-    y_invalid_len = np.random.randint(0, 2, size=7)
-    try:
-        check_X_y(X_raw, y_invalid_len)
-    except ValueError as err:
-        print(f"   [Перехвачена ожидаемая ошибка (размерность y)]: {err}")
-
-    # 3. Проверка базисной матрицы Y
-    print("\n3. Тестирование check_basis_matrix:")
-    N_feats, k_bases = 32, 4
-    Y_basis = np.random.randn(N_feats, k_bases)
-    Y_validated = check_basis_matrix(Y_basis, expected_n_features=32)
-    print(f"   Базисная матрица валидирована, форма: {Y_validated.shape}")
-
-    # 3.1 Ошибка при нулевом векторе в базисе
-    Y_zero_col = Y_basis.copy()
-    Y_zero_col[:, 0] = 0.0
-    try:
-        check_basis_matrix(Y_zero_col, expected_n_features=32)
-    except ValueError as err:
-        print(f"   [Перехвачена ожидаемая ошибка (нулевой базис)]: {err}")
-
-    # 4. Проверка гиперпараметров
-    print("\n4. Тестирование check_hyperparameters:")
-    check_hyperparameters(n_subclasses=8, reg_param=1e-8, n_centers_init=2)
-    print("   Валидные гиперпараметры успешно прошли проверку.")
-
-    try:
-        check_hyperparameters(n_subclasses=-3, reg_param=1e-8)
-    except ValueError as err:
-        print(f"   [Перехвачена ожидаемая ошибка (отрицательное число подклассов)]: {err}")
-
-    # 5. Проверка состояния обученности
-    print("\n5. Тестирование check_is_fitted:")
-
-    class MockEstimator:
-        def __init__(self):
-            self.is_fitted_ = False
-
-    mock_model = MockEstimator()
-    try:
-        check_is_fitted(mock_model)
-    except RuntimeError as err:
-        print(f"   [Перехвачена ожидаемая ошибка (необученная модель)]: {err}")
-
-    mock_model.is_fitted_ = True
-    check_is_fitted(mock_model)
-    print("   Проверка обученной модели выполнена успешно.")
-
-    print("\n Все функции модуля validation.py прошли проверки!")

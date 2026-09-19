@@ -83,6 +83,21 @@ opencv-python-headless ≥4.8, Pillow ≥10.
 
 ## Быстрый старт
 
+### Препроцессинг сырых снимков произвольного размера (NB1-NB2)
+
+```python
+from subspace_conjugacy import ImagePreprocessor
+from subspace_conjugacy.config import DatasetConfig
+
+config = DatasetConfig(root="data", classes=["glioma", "meningioma", "pituitary"])
+config.create_directories(stages=["raw"])
+# ... скопировать сырые .jpg в config.paths["glioma"]["raw"] и т.д. ...
+
+preprocessor = ImagePreprocessor(target_size=(256, 256))
+# raw/ -> resized/ -> centered/ (двухстадийно, как в NB1+NB2)
+centered_paths = preprocessor.process_class_via_config("glioma", config, pattern="*.jpg")
+```
+
 ### Классификация изображений «с нуля» (изображения → предсказание)
 
 ```python
@@ -93,7 +108,7 @@ from subspace_conjugacy import (
     SubspaceConjugacyClassifier,
 )
 
-# 1. Векторизация PNG-изображений (уже отцентрированных, см. "Данные")
+# 1. Векторизация PNG-изображений (уже отцентрированных — см. "Препроцессинг" выше)
 def load_class(class_dir: Path) -> np.ndarray:
     paths = sorted(class_dir.glob("*.png"))
     return load_and_vectorize_batch(paths, method="horizontal")
@@ -164,6 +179,28 @@ clf_loaded = load_pretrained_classifier(config)  # fit_from_subclass_bases, бе
 Либо через pickle (`subspace_conjugacy.io.persistence.save_model`/`load_model`) —
 проще, но версионно более хрупко, чем CSV+JSON выше.
 
+### Полный пайплайн через оркестратор (Фаза 6)
+
+```python
+from subspace_conjugacy import FursovPipeline
+from subspace_conjugacy.config import DatasetConfig
+
+config = DatasetConfig(root="data", classes=["glioma", "meningioma", "pituitary"], n_subclasses=8)
+pipeline = FursovPipeline(config)
+
+# NB1+NB2: raw -> resized -> centered, для каждого класса
+for cls in config.classes + ["test"]:
+    pipeline.run_preprocessing(cls, raw_pattern="*.jpg")
+
+# NB3 (vectorize) -> канон (cluster) -> NB6-7 (export_subspaces), для всех классов
+pipeline.run_all_classes()
+
+# Фаза C: собрать классификатор и оценить на тесте
+classifier = pipeline.build_classifier()
+report = pipeline.classify_test(y_test=y_true)  # или без y_test — позиционный NB8-фолбэк
+print(report["report"]["accuracy"])
+```
+
 ### Оценка качества классификации
 
 ```python
@@ -197,6 +234,14 @@ subspace_conjugacy/
 │   ├── base.py               # BaseSubspaceEstimator (sklearn-совместимый интерфейс)
 │   ├── clusterer.py           # SubspaceClusterer = алиас FursovClusterer (backward-compat)
 │   └── classifier.py          # SubspaceConjugacyClassifier — Фаза C / NB8
+├── preprocessing/             # NB1-NB2: сырое изображение -> 256x256, центрировано
+│   ├── resize.py                  # NB1
+│   ├── normalization.py           # NB2 — подавление фона
+│   ├── centering.py               # NB2 — горизонтальное/вертикальное центрирование
+│   └── preprocessor.py            # ImagePreprocessor — фасад + DatasetConfig-интеграция
+├── pipeline/                  # Оркестратор end-to-end сценария
+│   ├── stages.py                  # STAGE_REGISTRY — 11 именованных стадий
+│   └── fursov_pipeline.py         # FursovPipeline — run_class/run_all_classes/classify_test
 ├── features/
 │   ├── vectorization.py      # vectorize_image/_batch, load_and_vectorize[_batch] (NB3)
 │   └── extraction.py         # extract_class_vectors/_all_classes/_training_data (по DatasetConfig)
@@ -216,6 +261,8 @@ tests/
 ├── test_vectorization.py
 ├── test_csv_io.py
 ├── test_classifier.py
+├── test_preprocessing.py        # resize/normalization/centering + реальный Kaggle-датасет
+├── test_pipeline.py             # FursovPipeline + STAGE_REGISTRY, включая end-to-end на archive
 ├── test_algorithms/            # unit-тесты каждого канонического модуля (A.1-B.2, facade, export)
 ├── test_theory/                 # @pytest.mark.theory — инварианты канона на synthetic-данных
 └── test_parity/                 # @pytest.mark.notebook_parity — на реальных PNG из datasets/
@@ -235,6 +282,42 @@ refactoring_plan.txt   # Полный план рефакторинга по ф�
 `pyproject.toml`, `requirements.txt`, `pytest.ini` с маркерами `theory`/`notebook_parity`/`slow`,
 `subspace_conjugacy/__init__.py` с публичным API, `config/dataset.py::DatasetConfig`
 (конфигурируемые пути вместо `/Users/vladkorsikov/research/...`).
+
+### ✅ Фаза 1 — Preprocessing (NB1-NB2)
+
+`preprocessing/` принимает произвольные сырые снимки (любой размер, RGB или
+grayscale) и приводит их к формату, который ожидает остальной пайплайн
+(256×256, отцентрированное содержимое):
+
+- `preprocessing/resize.py` — resize до целевого размера через
+  `cv2.INTER_LANCZOS4` (аналог `PIL.Image.LANCZOS` из NB1) +
+  `resize_directory()` для пакетной обработки.
+- `preprocessing/normalization.py` — `suppress_background()`: векторизованный
+  (без попиксельных циклов) аналог `normalization_colour`/`normalization_grey`
+  из NB2 — одна функция вместо двух дублирующихся в ноутбуке, работает и для
+  grayscale, и для цветных изображений через общую grayscale-маску.
+- `preprocessing/centering.py` — `compute_horizontal_delta`/`compute_vertical_delta`
+  + `shift_rows`/`shift_columns` (через `np.roll`) — аналог
+  `find_horizontal_delta`/`image_correction_top_and_bottom`/`find_vertical_delta`/
+  `image_correction_left_and_right` из NB2. **Два бага оригинального ноутбука
+  сознательно не воспроизведены** (см. docstring модуля): скан "снизу"/"справа"
+  через `image[-line]` с `line` от 0 читает `image[-0] == image[0]` вместо
+  истинного последнего элемента; и асимметричное условие
+  (`< -1` по горизонтали, но `< 1` по вертикали) для порога "игнорировать
+  сдвиг на ±1 пиксель".
+- `preprocessing/preprocessor.py::ImagePreprocessor` — фасад: `.process(image)`
+  (в памяти), `.process_file()`, `.process_directory()` (произвольная
+  директория → пронумерованные PNG), `.process_class_via_config()`
+  (двухстадийный raw → resized → centered через `DatasetConfig`, как в
+  оригинальных ноутбуках).
+
+**Проверено на реальном датасете** (Kaggle "Brain Tumor MRI Dataset", не
+входит в репозиторий — см. `tests/test_preprocessing.py::TestRealBrainTumorArchive`,
+`BRAIN_MRI_ARCHIVE_ROOT`): на выборке из 90 изображений медианное отклонение
+центроида содержимого от геометрического центра кадра падает с ~13 до ~5
+пикселей после центрирования; полный путь raw `.jpg` произвольного размера →
+`resize` → `center` → `vectorize` → `FursovClusterer.fit()` отработан целиком
+без ошибок.
 
 ### ✅ Фаза 2 — Векторизация и CSV IO
 
@@ -286,34 +369,47 @@ refactoring_plan.txt   # Полный план рефакторинга по ф�
 | `8_{class}_subclasses_vectors.csv` | `save/load_subclass_bases[_as_list]` | Export |
 | — | `save_pipeline_artifact` / `load_pretrained_classifier` | CSV+JSON аналог pickle |
 
-### ❌ Фаза 1 — Preprocessing (NB1-NB2)
+### ✅ Фаза 6 — Pipeline Orchestrator
 
-**Не реализовано.** Библиотека принимает на вход уже отцентрированные изображения
-(`datasets/*_centered/*.png`). Отсутствуют модули:
+`pipeline/stages.py` — реестр `STAGE_REGISTRY` из 11 именованных стадий
+(`resize`, `center`, `vectorize`, `global_pair`, `reference_centers`,
+`subclass_seed`, `subclass_growth`, `cluster`, `export_subspaces`,
+`classify`, `legacy_notebook`) — каждая тонкая обёртка над уже
+существующим модулем (без новой логики). `pipeline/fursov_pipeline.py::FursovPipeline`
+собирает их в высокоуровневый сценарий:
 
-- `preprocessing/resize.py` — resize до 256×256 (NB1)
-- `preprocessing/centering.py` — горизонтальное/вертикальное центрирование по
-  порогу яркости (NB2, самая тяжёлая по CPU часть ноутбуков — попиксельные
-  Python-циклы, кандидат на векторизацию через numpy/opencv)
-- `preprocessing/normalization.py` — пороговая нормализация фона (NB2)
+- `run_stage(name, **kwargs)` — точечный вызов одной стадии; если сигнатура
+  стадии принимает `config` и он не передан явно, автоматически
+  подставляется `self.config`.
+- `run_preprocessing(class_name)` — NB1+NB2 (`resize` → `center`) для одного класса.
+- `run_class(class_name)` / `run_all_classes()` — `vectorize` → `cluster`
+  (**канон**, `FursovClusterer`) → `export_subspaces`, как в плане.
+  `"cluster"` — единственный путь кластеризации здесь; `"legacy_notebook"`
+  доступна только через явный `run_stage()`, не участвует в `run_class()`
+  (refactoring_plan.txt, раздел 6, п.1).
+- `build_classifier()` — собирает `SubspaceConjugacyClassifier` из
+  `self.clusterers_` через `fit_from_subclass_bases()`, без повторной
+  кластеризации.
+- `classify_test(y_test=...)` — предсказание + `evaluate_classifier()`
+  (Фаза C / NB8). Без `y_test` использует **буквальную** позиционную
+  разметку NB8 (первые `test_samples_per_class` объектов — первый класс из
+  `config.classes`, и т.д.) — задокументирована как хрупкая, явно
+  рекомендуется передавать `y_test`.
 
-Если нужно обработать **сырые** (не центрированные) снимки — придётся либо
-прогнать оригинальные ноутбуки `1_image_resizer.ipynb`/`2_dataset_preparing.ipynb`,
-либо реализовать эту фазу.
+Стадия `vectorize` сама определяет реальное количество изображений (через
+`glob`), а не полагается на зашитые в `DatasetConfig` 100/25 на класс — иначе
+пайплайн не работал бы ни на архивном Kaggle-датасете, ни на любом
+датасете произвольного размера.
 
-### ❌ Фаза 6 — Pipeline Orchestrator
-
-**Не реализовано.** Нет модуля `pipeline/fursov_pipeline.py` с единым
-`FursovPipeline.run_stage(...)`/`run_class(...)`/`run_all_classes()`/`classify_test()`
-из плана. Сейчас end-to-end сценарий собирается вручную (см. `main.py`) —
-рабочий, но не декларативный способ: пользователь сам вызывает векторизацию,
-`FursovClusterer`/`SubspaceConjugacyClassifier` и IO-функции по отдельности.
+Проверено end-to-end на реальных данных archive (`raw .jpg` → `resize` →
+`center` → `cluster` → `build_classifier` → `classify_test`) —
+`tests/test_pipeline.py::TestFullPipelineOnRealArchive`.
 
 ### ❌ Фаза 7 — Thin Notebook Wrappers
 
-**Не реализовано** (зависит от Фазы 6). Ноутбуки в `scripts/` остаются в
-исходном (легаси, с известными багами) виде — они не были переписаны в тонкие
-обёртки над библиотекой.
+**Не реализовано.** Ноутбуки в `scripts/` остаются в исходном (легаси, с
+известными багами) виде — не переписаны в тонкие обёртки над
+`FursovPipeline` (технически уже возможно после Фазы 6, но не сделано).
 
 ### 🟡 Фаза 8 — Тесты и покрытие
 
@@ -381,7 +477,7 @@ pytest -m "not slow"
 pytest --cov=subspace_conjugacy --cov-report=html
 ```
 
-На момент последнего прогона: **248 passed, 3 skipped** (пропущенные — три
+На момент последнего прогона: **298 passed, 3 skipped** (пропущенные — три
 теста в `tests/test_csv_io.py::TestNotebookParity`, ожидающие датасет по
 старой схеме путей `DatasetConfig(root="data")` с директориями `{class}_raw`,
 которой нет — актуальный датасет лежит в `datasets/{class}_centered/`, для
@@ -394,14 +490,24 @@ pytest --cov=subspace_conjugacy --cov-report=html
 
 ## Данные
 
-`datasets/{glioma,meningioma,pituitary}_centered/` — по 200 PNG 256×256 на
-класс, уже прошедших resize + центрирование (эквивалент выхода NB2 / входа
-NB3). Директория **не включена в git** (см. `.gitignore`) — большие бинарные
-файлы, датасет распространяется отдельно от кода.
+Используются два независимых датасета, ни один не входит в git (см. `.gitignore`):
 
-Отдельного held-out `test`-набора в репозитории нет — при необходимости
-holdout делается вручную (`sklearn.model_selection.train_test_split`, как в
-`main.py`) или через ручной срез списка файлов (как в `tests/test_parity/`).
+- **`datasets/{glioma,meningioma,pituitary}_centered/`** — по 200 PNG 256×256
+  на класс, уже прошедших resize + центрирование (эквивалент выхода NB2 /
+  входа NB3). Используется большинством `tests/test_parity/` и `main.py`.
+- **Kaggle "Brain Tumor MRI Dataset"** (Masoud Nickparvar; 4 класса —
+  glioma/meningioma/**notumor**/pituitary, `Training`/`Testing` split,
+  изображения произвольного размера от 200×200 до 900×741 и смешанных
+  режимов RGB/grayscale) — сырые данные для проверки Фазы 1
+  (`preprocessing/`). Класс `notumor` вне скоупа проекта (не используется).
+  Путь задаётся переменной окружения `BRAIN_MRI_ARCHIVE_ROOT`
+  (по умолчанию — путь на машине автора); тесты, зависящие от него,
+  автоматически пропускаются, если датасет не найден.
+
+Отдельного held-out `test`-набора для `datasets/*_centered/` в репозитории
+нет — при необходимости holdout делается вручную
+(`sklearn.model_selection.train_test_split`, как в `main.py`) или через
+ручной срез списка файлов (как в `tests/test_parity/`).
 
 ## Ссылки
 

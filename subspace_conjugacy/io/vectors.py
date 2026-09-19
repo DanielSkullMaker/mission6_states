@@ -6,9 +6,12 @@
 
 import csv
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     from subspace_conjugacy.config import DatasetConfig
@@ -49,6 +52,7 @@ def save_vectors_csv(
 
     with open(filepath, "w", newline="") as f:
         csv.writer(f, delimiter=delimiter).writerows(vectors)
+    logger.info("save_vectors_csv: %s сохранён (shape=%s).", filepath, np.shape(vectors))
 
 
 def load_vectors_csv(
@@ -85,6 +89,7 @@ def load_vectors_csv(
     """
     filepath = Path(filepath)
     if not filepath.exists():
+        logger.error("load_vectors_csv: файл не найден '%s'.", filepath)
         raise FileNotFoundError(f"CSV file not found: {filepath}")
 
     # Быстрая загрузка через np.loadtxt
@@ -94,6 +99,7 @@ def load_vectors_csv(
     if vectors.ndim == 1:
         vectors = vectors.reshape(1, -1)
 
+    logger.info("load_vectors_csv: %s загружен (shape=%s).", filepath, vectors.shape)
     return vectors
 
 
@@ -131,6 +137,7 @@ def save_class_vectors(
     data/5_all_vectors/glioma/glioma_horizontal_vector.csv
     """
     csv_path = config.get_vector_csv_path(class_name, vector_type)
+    logger.debug("save_class_vectors: класс=%s, vector_type=%s.", class_name, vector_type)
     save_vectors_csv(vectors, csv_path)
     return csv_path
 
@@ -164,6 +171,7 @@ def load_class_vectors(
     (100, 65536)
     """
     csv_path = config.get_vector_csv_path(class_name, vector_type)
+    logger.debug("load_class_vectors: класс=%s, vector_type=%s.", class_name, vector_type)
     return load_vectors_csv(csv_path)
 
 
@@ -176,16 +184,20 @@ def _save_index_pairs_csv(
 
     with open(filepath, "w", newline="") as f:
         csv.writer(f).writerows(pairs)
+    logger.debug("_save_index_pairs_csv: %s сохранён (%d строк).", filepath, len(pairs))
 
 
 def _load_index_pairs_csv(filepath: Union[str, Path]) -> List[List[int]]:
     """Читает список пар целых чисел построчно (общий формат NB4-6 CSV)."""
     filepath = Path(filepath)
     if not filepath.exists():
+        logger.error("_load_index_pairs_csv: файл не найден '%s'.", filepath)
         raise FileNotFoundError(f"CSV file not found: {filepath}")
 
     with open(filepath, newline="") as f:
-        return [[int(cell) for cell in row] for row in csv.reader(f)]
+        rows = [[int(cell) for cell in row] for row in csv.reader(f)]
+    logger.debug("_load_index_pairs_csv: %s загружен (%d строк).", filepath, len(rows))
+    return rows
 
 
 def save_initial_pair_indices(
@@ -510,6 +522,7 @@ def save_pipeline_artifact(
         Если classifier не обучен.
     """
     if not getattr(classifier, "is_fitted_", False):
+        logger.error("save_pipeline_artifact: классификатор %r не обучен.", classifier)
         raise RuntimeError(
             "Классификатор не обучен. Вызовите fit() или "
             "fit_from_subclass_bases() перед сохранением."
@@ -517,6 +530,10 @@ def save_pipeline_artifact(
 
     from subspace_conjugacy.algorithms.subclass_export import flatten_subspace_bases
 
+    logger.info(
+        "save_pipeline_artifact: сохранение %d классов в %s.",
+        len(classifier.classes_), config.root,
+    )
     written_paths: Dict[str, Path] = {}
 
     for cls in classifier.classes_:
@@ -537,6 +554,10 @@ def save_pipeline_artifact(
         json.dump(metadata, f, ensure_ascii=False, indent=2)
     written_paths["metadata"] = metadata_path
 
+    logger.info(
+        "save_pipeline_artifact: готово, %d файлов записано (включая метаданные %s).",
+        len(written_paths), metadata_path,
+    )
     return written_paths
 
 
@@ -577,6 +598,7 @@ def load_pretrained_classifier(
 
     metadata_path = config.get_pipeline_metadata_path()
     if not metadata_path.exists():
+        logger.error("load_pretrained_classifier: метаданные не найдены '%s'.", metadata_path)
         raise FileNotFoundError(
             f"Метаданные пайплайна не найдены: '{metadata_path}'. "
             "Ожидался файл, созданный save_pipeline_artifact()."
@@ -584,6 +606,10 @@ def load_pretrained_classifier(
 
     with open(metadata_path, "r", encoding="utf-8") as f:
         metadata = json.load(f)
+    logger.info(
+        "load_pretrained_classifier: метаданные загружены из %s, классы=%s.",
+        metadata_path, metadata["classes"],
+    )
 
     subspaces_by_class = {
         cls: load_subclass_bases_as_list(cls, config)
@@ -597,73 +623,5 @@ def load_pretrained_classifier(
         reg_param=metadata["reg_param"],
     )
     classifier.fit_from_subclass_bases(subspaces_by_class)
+    logger.info("load_pretrained_classifier: классификатор собран и готов к predict().")
     return classifier
-
-
-if __name__ == "__main__":
-    print("=== Демонстрация io/vectors.py ===\n")
-    np.random.seed(42)
-
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        # 1. Сохранение и загрузка векторов
-        print("1. Сохранение и загрузка векторов в CSV:")
-        X_test = np.random.randn(10, 64)
-        csv_path = tmpdir / "test_vectors.csv"
-
-        save_vectors_csv(X_test, csv_path)
-        X_loaded = load_vectors_csv(csv_path)
-
-        assert np.allclose(X_test, X_loaded), "Загруженные данные не совпадают"
-        print(f"   ✓ Сохранено и загружено: {X_loaded.shape}")
-
-        # 2. Работа с DatasetConfig
-        if DatasetConfig is not None:
-            print("\n2. Работа с DatasetConfig:")
-            config = DatasetConfig(root=tmpdir, n_subclasses=4)
-
-            # Создаём структуру директорий
-            config.create_directories(stages=["vectors"])
-
-            # Сохраняем векторы класса
-            X_glioma = np.random.randn(100, 65536)
-            path = save_class_vectors(X_glioma, "glioma", config, "horizontal")
-            print(f"   Сохранено в: {path.relative_to(tmpdir)}")
-
-            # Загружаем обратно
-            X_glioma_loaded = load_class_vectors("glioma", config, "horizontal")
-            assert np.allclose(X_glioma, X_glioma_loaded)
-            print(f"   ✓ Загружено: {X_glioma_loaded.shape}")
-
-            # 3. Работа с базисами подклассов
-            print("\n3. Сохранение и загрузка базисов подклассов:")
-            # 4 подкласса × 2 вектора = 8 строк
-            bases = np.random.randn(8, 65536)
-            bases_path = save_subclass_bases(bases, "meningioma", config)
-            print(f"   Сохранено в: {bases_path.relative_to(tmpdir)}")
-
-            # Загрузка как матрицы
-            bases_loaded = load_subclass_bases("meningioma", config)
-            assert np.allclose(bases, bases_loaded)
-            print(f"   ✓ Загружено как матрица: {bases_loaded.shape}")
-
-            # Загрузка как списка подпространств
-            subspaces = load_subclass_bases_as_list("meningioma", config)
-            print(f"   ✓ Загружено как список: {len(subspaces)} подпространств")
-            print(f"     Первое подпространство: {subspaces[0].shape}")
-
-        # 4. Краевой случай: один вектор
-        print("\n4. Краевой случай — один вектор:")
-        x_single = np.random.randn(64)
-        csv_single = tmpdir / "single_vector.csv"
-
-        save_vectors_csv(x_single.reshape(1, -1), csv_single)
-        x_single_loaded = load_vectors_csv(csv_single)
-
-        print(f"   Исходный: {x_single.shape}")
-        print(f"   Загруженный: {x_single_loaded.shape}")
-        assert x_single_loaded.ndim == 2 and x_single_loaded.shape[0] == 1
-
-        print("\n✓ Все демонстрационные проверки завершены!")

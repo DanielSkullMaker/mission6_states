@@ -21,6 +21,8 @@
   - Результат используется в SubspaceConjugacyClassifier (фаза C, NB8)
 """
 
+import logging
+import time
 from typing import List, Literal, Optional
 import numpy as np
 
@@ -28,6 +30,8 @@ from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
 from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
 from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
 from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
+
+logger = logging.getLogger(__name__)
 
 
 class FursovClusterer:
@@ -47,7 +51,9 @@ class FursovClusterer:
     growth_strategy : {"default", "master"}, default="default"
         Стратегия выбора векторов в фазе B.2:
         - "default": простой argmax R(x, Y_s)
-        - "master": ratio R(x, s*) / mean(R(x, others)) из NB7
+        - "master": ratio R(x, s*) / mean(R(x, others)) — канон-совместимая
+          аппроксимация идеи NB7, НЕ побитовая реплика
+          (см. algorithms/subclass_growth.py, docstring модуля)
     reg_param : float, default=1e-8
         Параметр регуляризации Тихонова для (Y^T Y)^{-1}.
 
@@ -143,32 +149,47 @@ class FursovClusterer:
             Если недостаточно векторов или некорректные параметры.
         """
         X_arr = self._validate_input(X)
+        fit_start = time.perf_counter()
+        logger.info(
+            "FursovClusterer.fit: старт, %d векторов, N=%d, n_subclasses=%d, "
+            "freeze_basis_at=%s, growth_strategy=%s.",
+            X_arr.shape[0], X_arr.shape[1], self.n_subclasses,
+            self.freeze_basis_at, self.growth_strategy,
+        )
 
         # ФАЗА A.1: Глобальная пара с минимальным косинусом
+        phase_start = time.perf_counter()
         self._pair_finder = GlobalMinCosinePairFinder()
         self._pair_finder.fit(X_arr)
         initial_pair = self._pair_finder.pair_indices_
+        logger.debug("FursovClusterer.fit: A.1 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # ФАЗА A.2-A.3: Последовательное добавление центров через min R
+        phase_start = time.perf_counter()
         self._center_builder = ReferenceCenterBuilder(
             n_subclasses=self.n_subclasses,
             reg_param=self.reg_param,
         )
         self._center_builder.fit(X_arr, initial_pair)
         center_indices = self._center_builder.center_indices_
+        logger.debug("FursovClusterer.fit: A.2-A.3 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # ФАЗА B.1: Второй вектор для каждого центра через min cos
+        phase_start = time.perf_counter()
         self._seed_attacher = CosineSecondVectorAttacher()
         self._seed_attacher.fit(X_arr, center_indices)
         pairs = self._seed_attacher.pairs_
+        logger.debug("FursovClusterer.fit: B.1 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # ФАЗА B.2: Последовательное наполнение кластеров через max R
+        phase_start = time.perf_counter()
         self._cluster_growth = ConjugacyClusterGrowth(
             freeze_basis_at=self.freeze_basis_at,
             strategy=self.growth_strategy,
             reg_param=self.reg_param,
         )
         self._cluster_growth.fit(X_arr, pairs)
+        logger.debug("FursovClusterer.fit: B.2 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # Сохраняем результаты
         self.subspaces_ = self._cluster_growth.subspace_bases_
@@ -177,6 +198,11 @@ class FursovClusterer:
         self.initial_pairs_ = pairs
         self.n_subclasses_ = self.n_subclasses
         self.is_fitted_ = True
+
+        logger.info(
+            "FursovClusterer.fit: готово за %.3fs, размеры подклассов=%s.",
+            time.perf_counter() - fit_start, self.get_subclass_sizes().tolist(),
+        )
 
         return self
 
@@ -215,6 +241,7 @@ class FursovClusterer:
             Если fit() ещё не был вызван.
         """
         self._check_is_fitted()
+        logger.debug("FursovClusterer.predict: делегируем ConjugacyClusterGrowth.predict.")
         return self._cluster_growth.predict(X)
 
     def get_subclass_sizes(self) -> np.ndarray:
@@ -307,6 +334,7 @@ class FursovClusterer:
     def _check_is_fitted(self) -> None:
         """Проверяет, был ли вызван fit()."""
         if not self.is_fitted_:
+            logger.error("FursovClusterer: обращение к результатам до fit().")
             raise RuntimeError(
                 "Модель не обучена. Вызовите fit(X) перед использованием."
             )
@@ -327,106 +355,3 @@ class FursovClusterer:
 
 # Alias для обратной совместимости с legacy SubspaceClusterer
 SubspaceClusterer = FursovClusterer
-
-
-if __name__ == "__main__":
-    print("=== Demonstracija FursovClusterer (teorija A+B fasad) ===\n")
-    np.random.seed(42)
-
-    # 1. Osnovnoj use case: odin fit() dlja vsego
-    print("1. Polnyj pipeline cherez jedinyj fit():")
-    X_demo = np.random.randn(100, 256)
-
-    clusterer = FursovClusterer(n_subclasses=8, freeze_basis_at=2)
-    clusterer.fit(X_demo)
-
-    print(f"   Podklassov: {clusterer.n_subclasses_}")
-    print(f"   Bazisov: {len(clusterer.subspaces_)}")
-    print(f"   Forma pervogo bazisa: {clusterer.subspaces_[0].shape}")
-    print(f"   Metok: {len(clusterer.labels_)}")
-
-    # 2. Razmery podklassov
-    print("\n2. Raspredelenie vektorov:")
-    sizes = clusterer.get_subclass_sizes()
-    print(f"   Razmery: {sizes}")
-    print(f"   Min: {sizes.min()}, Max: {sizes.max()}, Sum: {sizes.sum()}")
-
-    # 3. Dostup k promezhutochnym resultatam
-    print("\n3. Promezhutochnye rezultaty faz:")
-    initial_pair = clusterer.get_initial_pair()
-    centers = clusterer.get_center_indices()
-    pairs = clusterer.get_initial_pairs()
-    print(f"   A.1: Globalnaja para {initial_pair}")
-    print(f"   A.2-A.3: Centrov {len(centers)}")
-    print(f"   B.1: Par {len(pairs)}")
-
-    # 4. fit_predict
-    print("\n4. fit_predict (shortcut):")
-    X_new = np.random.randn(80, 256)
-    clusterer2 = FursovClusterer(n_subclasses=6, freeze_basis_at=2)
-    labels = clusterer2.fit_predict(X_new)
-    print(f"   Metki: {len(labels)}, Unikalnyh: {len(set(labels))}")
-
-    # 5. predict na novyh dannyh
-    print("\n5. Predikcija posle fit:")
-    X_test = np.random.randn(20, 256)
-    pred_labels = clusterer.predict(X_test)
-    print(f"   Prediktov: {len(pred_labels)}")
-    print(f"   Unikalnye metki: {sorted(set(pred_labels))}")
-
-    # 6. Strategy master (NB7)
-    print("\n6. Strategy='master' (NB7 replica):")
-    clusterer_master = FursovClusterer(
-        n_subclasses=8,
-        freeze_basis_at=2,
-        growth_strategy="master",
-    )
-    clusterer_master.fit(X_demo)
-    sizes_master = clusterer_master.get_subclass_sizes()
-    print(f"   Razmery (master): {sizes_master}")
-
-    # 7. Bez freeze (polnye bazisy)
-    print("\n7. Bez ogranichenia bazisa (freeze_basis_at=None):")
-    clusterer_full = FursovClusterer(n_subclasses=4, freeze_basis_at=None)
-    clusterer_full.fit(X_demo)
-    print(f"   Razmery bazisov:")
-    for i, Y in enumerate(clusterer_full.subspaces_):
-        print(f"       Podklass {i}: {Y.shape}")
-
-    # 8. Alias SubspaceClusterer
-    print("\n8. Obrabtnaja sovmestimost (alias SubspaceClusterer):")
-    from subspace_conjugacy.algorithms.fursov_clusterer import SubspaceClusterer
-    legacy = SubspaceClusterer(n_subclasses=8)
-    legacy.fit(X_demo)
-    print(f"   SubspaceClusterer rabotaet: {legacy.is_fitted_}")
-    print(f"   Type: {type(legacy).__name__}")
-
-    # 9. Proizvoditelnost
-    print("\n9. Proizvoditelnost:")
-    import time
-    X_large = np.random.randn(500, 512)
-
-    start = time.perf_counter()
-    clusterer_large = FursovClusterer(n_subclasses=12, freeze_basis_at=2)
-    clusterer_large.fit(X_large)
-    elapsed = time.perf_counter() - start
-
-    print(f"   Vektorov: {X_large.shape[0]}, razmernost: {X_large.shape[1]}")
-    print(f"   Podklassov: 12")
-    print(f"   Vremja: {elapsed:.3f}s")
-
-    # 10. Proverka oshibok
-    print("\n10. Validacija:")
-    try:
-        bad = FursovClusterer(n_subclasses=1)
-    except ValueError as e:
-        print(f"   [Oshibka n_subclasses]: {e}")
-
-    try:
-        bad2 = FursovClusterer(n_subclasses=8)
-        bad2.fit(np.random.randn(10, 64))  # 10 < 16
-    except ValueError as e:
-        print(f"   [Oshibka nedostatochno vektorov]: {e}")
-
-    print("\n OK Vse demonstracionnye proverki zaversheny!")
-    print(f"\n{clusterer}")
