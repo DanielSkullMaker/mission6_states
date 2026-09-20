@@ -13,6 +13,7 @@
 - [Быстрый старт](#быстрый-старт)
 - [Структура проекта](#структура-проекта)
 - [Статус реализации по фазам](#статус-реализации-по-фазам)
+- [Сверка с опубликованной статьёй](#сверка-с-опубликованной-статьёй)
 - [Известные ограничения и особенности метода](#известные-ограничения-и-особенности-метода)
 - [Тестирование](#тестирование)
 - [Данные](#данные)
@@ -34,9 +35,17 @@
 
 - Размер изображений после препроцессинга: 256×256 px
 - Размерность вектора признаков: 65536 (256×256, построчная развёртка)
-- Количество подклассов на класс: 8 (`n_subclasses`)
-- Базисных векторов в подклассе: 2 (`freeze_basis_at`)
+- Количество подклассов на класс: 8 (`n_subclasses` — int на все классы или
+  `Dict[class_label, int]` для настройки на класс отдельно)
+- Базисных векторов в подклассе: 2 (`freeze_basis_at` — int, `None`
+  для неограниченного роста, либо `"auto"` для равнения по минимальному
+  фактически достигнутому размеру среди всех классов)
 - Итого подпространств для классификации: 24 (3 класса × 8 подклассов)
+- Опциональные (по умолчанию **выключены**, обратная совместимость)
+  предобработочные фильтры эталонных векторов — `filter_dependent`
+  (почти линейно зависимые) и `filter_low_informativeness` (малоинформативные,
+  доля "белых" элементов < 50% от среднего) — см.
+  [«Сверка с опубликованной статьёй»](#сверка-с-опубликованной-статьёй).
 
 ### Три фазы алгоритма (канон, `refactoring_plan.txt`, раздел 1)
 
@@ -78,7 +87,7 @@ pip install -e .
 pip install -e ".[dev]"
 ```
 
-**Зависимости:** Python ≥3.10, NumPy ≥1.22, scikit-learn ≥1.2,
+**Зависимости:** Python ≥3.10, NumPy ≥1.22, SciPy ≥1.8, scikit-learn ≥1.2,
 opencv-python-headless ≥4.8, Pillow ≥10.
 
 ## Быстрый старт
@@ -201,6 +210,67 @@ report = pipeline.classify_test(y_test=y_true)  # или без y_test — по�
 print(report["report"]["accuracy"])
 ```
 
+### Опциональные фильтры эталонных векторов (сверка со статьёй, находки №3, №5)
+
+```python
+from subspace_conjugacy import SubspaceConjugacyClassifier
+
+clf = SubspaceConjugacyClassifier(
+    n_subclasses=8,
+    filter_dependent=True,              # исключить почти линейно зависимые векторы
+    dependency_threshold=0.999,
+    filter_low_informativeness=True,    # исключить малоинформативные (мало "белых" элементов)
+    informativeness_min_fraction=0.5,   # статья: < 50% от среднего по классу
+)
+clf.fit(X, y)
+clf.excluded_indices_by_class_  # {class_label: индексы X, исключённые хотя бы одним фильтром}
+```
+
+Оба фильтра применяются независимо для каждого класса, перед кластеризацией
+(сначала `filter_low_informativeness`, затем `filter_dependent` — среди
+выживших). По умолчанию оба выключены.
+
+### Поиск гиперпараметров (grid search / random search)
+
+```python
+from subspace_conjugacy import grid_search_classifier, random_search_classifier, summarize_search_results
+
+search = grid_search_classifier(X_train, y_train, cv=3)          # по умолчанию — DEFAULT_PARAM_GRID
+search.best_params_, search.best_score_
+search.best_estimator_.predict(X_test)
+
+search = random_search_classifier(X_train, y_train, n_iter=15, cv=3, random_state=42)
+for row in summarize_search_results(search, top_n=3):
+    print(row["rank"], row["mean_test_score"], row["params"])
+```
+
+`SubspaceConjugacyClassifier` — обычный sklearn-эстиматор (`get_params`/
+`set_params`/`clone` работают из коробки), поэтому `grid_search_classifier`/
+`random_search_classifier` — тонкие обёртки над
+`GridSearchCV`/`RandomizedSearchCV` без собственной логики перебора.
+
+### Двухэтапная классификация: проекция → тип опухоли (статья, находка №4)
+
+```python
+from subspace_conjugacy import SubspaceConjugacyClassifier, SequentialClassifier, otsu_binarize
+
+# Этап 1 — определение проекции (axial/sagittal/coronal) на Otsu-бинаризованных изображениях
+stage1 = SubspaceConjugacyClassifier(n_subclasses=4)
+stage1.fit(X_projection_train, y_projection_train)
+
+# Этап 2 — отдельный классификатор типа опухоли на каждую проекцию
+stage2 = {
+    "axial": SubspaceConjugacyClassifier(n_subclasses=8),
+    "sagittal": SubspaceConjugacyClassifier(n_subclasses=8),
+    "coronal": SubspaceConjugacyClassifier(n_subclasses=8),
+}
+
+seq = SequentialClassifier(stage1, stage2)
+seq.fit(X1_train, y1_train, X2_by_group_train, y2_by_group_train)
+
+projection_pred, tumor_type_pred = seq.predict(X1_test, X2_test)
+```
+
 ### Оценка качества классификации
 
 ```python
@@ -223,24 +293,31 @@ subspace_conjugacy/
 ├── algorithms/               # Канонический алгоритм (Фазы A, B) + legacy для parity
 │   ├── global_pair.py            # A.1  — GlobalMinCosinePairFinder
 │   ├── reference_centers.py      # A.2-A.3 — ReferenceCenterBuilder
+│   ├── reference_filter.py       # Фаза 0b — LinearDependencyFilter (сверка со статьёй, находка №3)
+│   ├── informativeness_filter.py # Фаза 0a — LowInformativenessFilter (находка №5)
 │   ├── subclass_seed.py          # B.1  — CosineSecondVectorAttacher
 │   ├── subclass_growth.py        # B.2  — ConjugacyClusterGrowth
-│   ├── fursov_clusterer.py       # Фасад A.1→A.3→B.1→B.2 — FursovClusterer
-│   ├── subclass_export.py        # flatten/unflatten/export базисов в CSV (NB6-7 формат)
+│   ├── fursov_clusterer.py       # Фасад 0a→0b→A.1→A.3→B.1→B.2 — FursovClusterer
+│   ├── subclass_export.py        # flatten/unflatten/export базисов в CSV (NB6-7 формат) + equalize_subspace_bases
 │   └── legacy/                   # ТОЛЬКО для parity-тестов, не для production
 │       ├── per_vector_pairs.py       # NB4 (per-vector trio_list, расходится с A.1)
 │       └── notebook_pipeline.py      # Staged NB5→NB6→NB7 (canonical- или legacy-pair)
 ├── models/
-│   ├── base.py               # BaseSubspaceEstimator (sklearn-совместимый интерфейс)
-│   ├── clusterer.py           # SubspaceClusterer = алиас FursovClusterer (backward-compat)
-│   └── classifier.py          # SubspaceConjugacyClassifier — Фаза C / NB8
+│   ├── base.py                    # BaseSubspaceEstimator (sklearn-совместимый интерфейс)
+│   ├── clusterer.py                # SubspaceClusterer = алиас FursovClusterer (backward-compat)
+│   ├── classifier.py               # SubspaceConjugacyClassifier — Фаза C / NB8
+│   └── sequential_classifier.py    # SequentialClassifier — этап 1 (проекция) → этап 2 (тип опухоли), находка №4
+├── model_selection/            # Поиск гиперпараметров (grid search / random search)
+│   ├── param_space.py             # DEFAULT_PARAM_GRID, DEFAULT_PARAM_DISTRIBUTIONS
+│   └── search.py                  # grid_search_classifier, random_search_classifier, search_hyperparameters
 ├── preprocessing/             # NB1-NB2: сырое изображение -> 256x256, центрировано
 │   ├── resize.py                  # NB1
 │   ├── normalization.py           # NB2 — подавление фона
 │   ├── centering.py               # NB2 — горизонтальное/вертикальное центрирование
+│   ├── binarization.py            # otsu_threshold/otsu_binarize — этап определения проекции (находка №4)
 │   └── preprocessor.py            # ImagePreprocessor — фасад + DatasetConfig-интеграция
 ├── pipeline/                  # Оркестратор end-to-end сценария
-│   ├── stages.py                  # STAGE_REGISTRY — 11 именованных стадий
+│   ├── stages.py                  # STAGE_REGISTRY — именованные стадии (включая binarize)
 │   └── fursov_pipeline.py         # FursovPipeline — run_class/run_all_classes/classify_test
 ├── features/
 │   ├── vectorization.py      # vectorize_image/_batch, load_and_vectorize[_batch] (NB3)
@@ -261,9 +338,11 @@ tests/
 ├── test_vectorization.py
 ├── test_csv_io.py
 ├── test_classifier.py
-├── test_preprocessing.py        # resize/normalization/centering + реальный Kaggle-датасет
+├── test_sequential_classifier.py  # SequentialClassifier (находка №4)
+├── test_model_selection.py      # grid_search_classifier/random_search_classifier + is_classifier regression
+├── test_preprocessing.py        # resize/normalization/centering/otsu + реальный Kaggle-датасет
 ├── test_pipeline.py             # FursovPipeline + STAGE_REGISTRY, включая end-to-end на archive
-├── test_algorithms/            # unit-тесты каждого канонического модуля (A.1-B.2, facade, export)
+├── test_algorithms/            # unit-тесты каждого канонического модуля (0a-0b, A.1-B.2, facade, export)
 ├── test_theory/                 # @pytest.mark.theory — инварианты канона на synthetic-данных
 └── test_parity/                 # @pytest.mark.notebook_parity — на реальных PNG из datasets/
 
@@ -426,6 +505,30 @@ Theory-тесты (`tests/test_theory/`) и parity-тесты на реальн�
   held-out набор оригинальных ноутбуков) не воспроизведена буквально — такого
   набора не существует в репозитории. См. следующий раздел.
 
+## Сверка с опубликованной статьёй
+
+Помимо рефакторинга ноутбуков, библиотека была сверена с опубликованной
+статьёй Korshikov & Fursov ("Pathology Recognition Based on Conjugacy
+Criteria with Subspaces of Reference Images", [`theory/`](theory)) — полный
+разбор в `refactoring_plan.txt`, раздел 10. Из 6 найденных расхождений 5
+реализованы как **опциональные** (по умолчанию выключенные) возможности —
+обратная совместимость не нарушена:
+
+| № | Расхождение со статьёй | Реализация |
+|---|---|---|
+| 1 | `n_subclasses` — единый int на все классы, а не per-class | `n_subclasses` принимает `Dict[class_label, int]` |
+| 2 | `freeze_basis_at=2` отбрасывает результат роста подпространства (B.2) | `freeze_basis_at="auto"` — рост без ограничения + равнение до общего минимального k (`equalize_subspace_bases`) |
+| 3 | Почти линейно зависимые эталонные векторы не исключаются | `filter_dependent=True` — `LinearDependencyFilter` (Фаза 0b) |
+| 4 | Первый этап статьи (Otsu + классификация проекции) не реализован | `otsu_binarize`/`otsu_threshold` + `SequentialClassifier` |
+| 5 | Малоинформативные изображения (< 50% "белых" элементов от среднего) не отфильтровываются | `filter_low_informativeness=True` — `LowInformativenessFilter` (Фаза 0a, перед 0b) |
+| 6 | Датасет/сплит статьи (300/375/450, 80/20) отличается от репозиторного | Не баг — задокументировано как контекст, изменений не требует |
+
+Фильтры Фазы 0 применяются в порядке 0a (`filter_low_informativeness`) →
+0b (`filter_dependent`) — сначала отбрасывается низкое качество данных,
+затем избыточность среди оставшихся; `FursovClusterer.excluded_indices_` —
+объединение (`np.union1d`) исключений обоих фильтров, с отдельными
+`excluded_by_informativeness_`/`excluded_by_dependency_` для интроспекции.
+
 ## Известные ограничения и особенности метода
 
 - **Accuracy на реальном датасете:** на end-to-end прогоне (`main.py`, все 600
@@ -477,11 +580,12 @@ pytest -m "not slow"
 pytest --cov=subspace_conjugacy --cov-report=html
 ```
 
-На момент последнего прогона: **298 passed, 3 skipped** (пропущенные — три
-теста в `tests/test_csv_io.py::TestNotebookParity`, ожидающие датасет по
-старой схеме путей `DatasetConfig(root="data")` с директориями `{class}_raw`,
-которой нет — актуальный датасет лежит в `datasets/{class}_centered/`, для
-него используются fixtures в `tests/test_parity/conftest.py`).
+На момент последнего прогона: **542 passed, 1 skipped**, покрытие **94%**
+(пропущенный тест — в `tests/test_csv_io.py::TestNotebookParity`, ожидает
+датасет по старой схеме путей `DatasetConfig(root="data")` с директориями
+`{class}_raw`, которой нет — актуальный датасет лежит в
+`datasets/{class}_centered/`, для него используются fixtures в
+`tests/test_parity/conftest.py`).
 
 `notebook_parity`/`slow` тесты на полном 200-изображенческом классе укладываются
 в единицы-десятки секунд на подвыборках (обычно 50-60 изображений на класс) —

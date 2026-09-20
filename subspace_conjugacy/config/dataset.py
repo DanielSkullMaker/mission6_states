@@ -39,6 +39,10 @@ class DatasetConfig:
         - raw: исходные изображения
         - resized: после resize до 256×256
         - centered: после центрирования
+        - binarized: после Otsu-бинаризации (только для этапа определения
+          проекции axial/sagittal/coronal, статья "Data Preprocessing",
+          refactoring_plan.txt раздел 10 находка №4 — НЕ используется для
+          обычной классификации типа опухоли)
         - vectors: CSV с векторами признаков
         - subclasses: базисы подклассов
 
@@ -81,6 +85,11 @@ class DatasetConfig:
                 "raw": self.root / f"{cls}_raw",
                 "resized": self.root / f"2_{cls}_resize",
                 "centered": self.root / f"3_{cls}_centered",
+                # "binarized" — только для этапа определения проекции (Otsu,
+                # статья "Data Preprocessing", refactoring_plan.txt, раздел
+                # 10, находка №4); обычная классификация типа опухоли эту
+                # стадию не использует.
+                "binarized": self.root / f"4_{cls}_binarized",
                 "vectors": self.root / "5_all_vectors" / cls,
                 "subclasses": self.root / "5_all_vectors" / cls,
             }
@@ -90,6 +99,7 @@ class DatasetConfig:
             "raw": self.root / "test_raw",
             "resized": self.root / "2_test_resize",
             "centered": self.root / "3_test_centered",
+            "binarized": self.root / "4_test_binarized",
             "vectors": self.root / "5_all_vectors" / "test",
         }
 

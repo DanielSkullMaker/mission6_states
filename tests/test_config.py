@@ -25,10 +25,12 @@ class TestDatasetConfigPaths:
             assert "raw" in config.paths[cls]
             assert "resized" in config.paths[cls]
             assert "centered" in config.paths[cls]
+            assert "binarized" in config.paths[cls]
             assert "vectors" in config.paths[cls]
 
         assert config.paths["glioma"]["raw"] == tmp_path.resolve() / "glioma_raw"
         assert config.paths["test"]["raw"] == tmp_path.resolve() / "test_raw"
+        assert config.paths["glioma"]["binarized"] == tmp_path.resolve() / "4_glioma_binarized"
 
     def test_custom_classes_list(self, tmp_path):
         config = DatasetConfig(root=tmp_path, classes=["glioma"])

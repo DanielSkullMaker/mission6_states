@@ -812,5 +812,261 @@ FursovPipeline.run_stage():
   Не меняй unrelated code.
 
 ================================================================================
+9. ПОИСК ГИПЕРПАРАМЕТРОВ (добавлено 2026-09-20)
+================================================================================
+
+subspace_conjugacy/model_selection/ — grid search и random search для
+SubspaceConjugacyClassifier поверх sklearn.model_selection (не собственная
+реализация перебора — классификатор уже sklearn-эстиматор, GridSearchCV/
+RandomizedSearchCV работают "из коробки"):
+  - param_space.py    — DEFAULT_PARAM_GRID / DEFAULT_PARAM_DISTRIBUTIONS
+                         (n_subclasses, growth_strategy, reg_param;
+                         freeze_basis_at сознательно не варьируется — теория
+                         Фазы C требует k=2, это не тюнинг-параметр)
+  - search.py          — grid_search_classifier, random_search_classifier,
+                         search_hyperparameters (диспетчер), summarize_search_results
+  Экспортированы из subspace_conjugacy напрямую (top-level API).
+
+НАХОДКА №4 (критический баг совместимости со sklearn, исправлен при
+добавлении этого модуля): SubspaceConjugacyClassifier был объявлен как
+``class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin)``.
+В современных версиях sklearn (тегирование эстиматора через
+__sklearn_tags__) такой порядок баз приводит к тому, что
+is_classifier(clf) == False — BaseEstimator в MRO разрешается раньше
+ClassifierMixin и перекрывает тег "classifier". Практическое следствие:
+GridSearchCV/RandomizedSearchCV/cross_val_score с целочисленным ``cv``
+использовали обычный KFold вместо StratifiedKFold; на данных, где объекты
+идут блоками по классам (типичная раскладка MRI-датасета до shuffle),
+train-фолд целиком терял один класс, и accuracy на всех фолдах была РОВНО
+0.0 — без единого исключения, то есть баг был полностью незаметен снаружи.
+Исправлено обращением порядка: ``class SubspaceConjugacyClassifier(ClassifierMixin,
+BaseSubspaceEstimator)`` (mixin — первым, стандартная рекомендация sklearn
+для множественного наследования). Регрессия закрыта тестом
+tests/test_model_selection.py::TestIsClassifierRegression.
+
+================================================================================
+10. СВЕРКА С ОПУБЛИКОВАННОЙ СТАТЬЁЙ (Korshikov & Fursov, добавлено 2026-09-20)
+================================================================================
+
+theory/VI_Korshikov_VA_Fursov_Pathology_Recognition_Based_on_Conjugacy.docx —
+опубликованная статья с тем же методом + экспериментальная валидация на
+Kaggle Brain Tumor MRI датасетах. Формулы (1)-(3) (R(x,Y), cosine, растущая
+матрица центров) подтверждают канон из раздела 1 буквально. Найденные при
+сверке расхождения библиотеки со статьёй (по приоритету):
+
+  №1 n_subclasses — единый int на все классы, а не per-class. ✅ ИСПРАВЛЕНО
+     2026-09-20: SubspaceConjugacyClassifier(n_subclasses=...) теперь
+     принимает int (как раньше, без изменения поведения) ИЛИ
+     Mapping[ClassLabel, int] — независимое число подклассов на класс
+     (статья, "Description of the Clustering Method": оптимальное число
+     подклассов обычно различается между патологиями; Table I — glioma/
+     meningioma/pituitary достигают максимума accuracy при разном числе).
+     При словаре: обязателен ключ для каждого класса из y при fit()
+     (иначе ValueError со списком недостающих), лишние ключи — WARNING и
+     игнорируются. Фактически применённые значения — в новом атрибуте
+     self.n_subclasses_by_class_ (Dict[ClassLabel, int], заполняется и при
+     fit(), и при fit_from_subclass_bases() — во втором случае выводится из
+     len(subspaces_by_class[cls])). BaseSubspaceEstimator._validate_input_params
+     обобщён на Mapping. FursovPipeline.run_all_classes(n_subclasses=...)
+     получил тот же dict-fan-out (для симметрии с классификатором) — при
+     Mapping распределяет разные значения по run_class() для каждого
+     класса, при отсутствии значения для класса — ValueError.
+     grid_search_classifier/random_search_classifier не требовали изменений:
+     dict — обычное значение точки param_grid для sklearn (set_params
+     принимает любой Python-объект), см. tests/test_model_selection.py::
+     TestGridSearchClassifier::test_can_grid_search_over_per_class_n_subclasses_dicts.
+     Тесты: tests/test_classifier.py::TestPerClassNSubclasses,
+     tests/test_pipeline.py::TestRunAllClasses (dict-варианты).
+
+  №2 freeze_basis_at=2 отбрасывает результат роста подпространства (B.2) —
+     классификатору достаётся только исходная пара из B.1, а не фактически
+     выросший базис. Статья растит подпространства до реального размера и
+     срезает до размера НАИМЕНЬШЕГО подпространства между классами только
+     для честного сравнения R(x,Y) — не фиксирует k=2 заранее.
+     ✅ ИСПРАВЛЕНО 2026-09-20:
+       - algorithms/subclass_export.py::equalize_subspace_bases(subspaces_by_class)
+         — новая функция, буквальный рецепт статьи ("only the first n
+         elements corresponding to the number of vectors of the smallest
+         space are taken for each vector"): усекает базисы ВСЕХ подклассов
+         ВСЕХ классов до общего минимального фактически достигнутого k.
+       - SubspaceConjugacyClassifier(freeze_basis_at=...) принимает, кроме
+         int (старое поведение, дефолт не менялся — 2) и None (полный рост
+         БЕЗ равнения между классами, как раньше у FursovClusterer), новое
+         значение "auto": каждый класс растится без ограничения
+         (freeze_basis_at=None внутри FursovClusterer — рост и так ВСЕГДА
+         идёт до конца независимо от freeze_basis_at, freeze_basis_at лишь
+         решает, что оставить на выходе, так что "auto" не стоит ничего
+         сверх текущей стоимости fit()), затем equalize_subspace_bases
+         равняет всё к общему минимуму. Итоговое k — в новом атрибуте
+         self.equalized_basis_size_ (None, если equalize не применялся).
+       - fit_from_subclass_bases(subspaces_by_class, equalize=False) — тот
+         же механизм для уже готовых базисов (например, полученных вне
+         fit(), с разным k у разных классов).
+       - FursovPipeline.build_classifier(equalize=False) — форвардит в
+         fit_from_subclass_bases(equalize=...), для сценария
+         run_all_classes(freeze_basis_at=None) + сборка классификатора.
+       - predict_r_matrix()/predict_r_matrix_flat() задокументировали явно:
+         R(x,Y) не масштабируется по k, сравнение между классами честно
+         только при равном k у всех подпространств.
+       ⚠ Дефолт freeze_basis_at остаётся int=2 (обратная совместимость,
+       поведение/точность существующих пользователей не меняется молча) —
+       "auto" нужно включать явно. Тесты:
+       tests/test_algorithms/test_subclass_export.py::TestEqualizeSubspaceBases,
+       tests/test_classifier.py::TestFreezeBasisAtAuto,
+       tests/test_classifier.py::TestFitFromSubclassBasesEqualize,
+       tests/test_pipeline.py::TestBuildClassifier (equalize-варианты).
+
+  №3 Growth-цикл исчерпывающий (все векторы обязательно куда-то
+     присоединяются); статья допускает, что часть эталонных векторов
+     останется неприсоединённой, и отдельно исключает почти линейно
+     зависимые векторы ещё до кластеризации (фильтра нет в библиотеке).
+     ✅ ИСПРАВЛЕНО 2026-09-20 (переинтерпретация): при повторном чтении
+     статьи ("Description of the Clustering Method": "so on until the
+     distribution of all free vectors is completed... It is possible that
+     some number of reference vectors will remain unallocated") наиболее
+     естественное прочтение — "неприсоединённые векторы" — это именно те,
+     что исключены на этапе "Problem Definition" ("almost linearly
+     dependent vectors are excluded from the set of reference vectors")
+     ДО начала кластеризации, а не результат того, что growth-цикл
+     останавливается раньше срока по неизвестному критерию (статья не
+     приводит формулы/условия для такой ранней остановки — придумывать её
+     произвольно означало бы менять уже протестированный канон B.2 без
+     обоснования). Поэтому:
+       - Growth-цикл (ConjugacyClusterGrowth/B.2) НЕ изменён — остаётся
+         исчерпывающим по своим собственным правилам, как и раньше.
+       - Добавлен только фильтр почти линейно зависимых эталонных векторов
+         (буквально "Problem Definition"):
+         algorithms/reference_filter.py::LinearDependencyFilter — проходит
+         по векторам по порядку, накапливает "принятое" подпространство
+         Y_accepted (первый вектор — безусловно), последующий вектор
+         исключается, если R(x, Y_accepted) >= threshold (по умолчанию
+         0.999) — т.е. почти целиком объясняется уже принятыми (тот же
+         criterion сопряжённости R(x,Y) из core/metrics.py: R->1 означает
+         "x почти линейно зависим от столбцов Y" — формальное определение).
+       - FursovClusterer(filter_dependent=False (default), dependency_threshold=0.999):
+         при True прогоняет фильтр ПЕРЕД фазой A.1; исключённые векторы
+         никогда не участвуют в A.1-B.2 и получают label=-1 в
+         self.labels_ (длина labels_ всегда равна исходному M, индексация
+         всех публичных атрибутов center_indices_/initial_pairs_/
+         get_initial_pair()/kept_indices_/excluded_indices_ — в
+         пространстве индексов ИСХОДНОГО X, переданного в fit(), с явным
+         remapping из локального индексного пространства отфильтрованного
+         подмножества).
+       - SubspaceConjugacyClassifier(filter_dependent=False (default),
+         dependency_threshold=0.999) — тот же флаг прокидывается в
+         FursovClusterer НЕЗАВИСИМО для каждого класса; новый атрибут
+         excluded_indices_by_class_ (Dict[ClassLabel, np.ndarray],
+         индексы — в исходном X глобально, не в подвыборке класса).
+       - Совместимо с freeze_basis_at="auto"/equalize (находка №2) —
+         независимые оси, компонуются без конфликтов.
+       ⚠ Важное математическое свойство (задокументировано в Notes
+       LinearDependencyFilter): как только число принятых векторов
+       достигает размерности признаков N, ЛЮБОЙ следующий вектор
+       неизбежно почти линейно зависим (полный ранг исчерпан) — для
+       реальных МРТ (N=65536, M~сотни) это не проявляется, но легко
+       спутать с багом на низкоразмерных синтетических тестах (M > N).
+       Дефолт filter_dependent=False — обратная совместимость.
+       Тесты: tests/test_algorithms/test_reference_filter.py,
+       tests/test_algorithms/test_fursov_clusterer.py::TestFursovClustererDependencyFilter,
+       tests/test_classifier.py::TestFilterDependent.
+
+  №4 Целый первый этап пайплайна статьи (Otsu-бинаризация + классификация
+     проекции axial/sagittal/coronal перед классификацией типа опухоли) не
+     реализован. Архитектурно тривиально (SubspaceConjugacyClassifier
+     универсален), но нужны: Otsu-препроцессинг, разметка по проекциям,
+     обёртка для двух последовательных классификаторов.
+     ✅ ИСПРАВЛЕНО 2026-09-20 (примитивы + оркестрация; готовых
+     проекционно-размеченных данных в репозитории всё равно нет — реальный
+     сквозной прогон на Kaggle-датасете статьи пользователь собирает сам,
+     see примеры ниже):
+       - preprocessing/binarization.py::otsu_threshold/otsu_binarize —
+         тонкая обёртка над cv2.THRESH_OTSU (формула (2) статьи — обычный
+         метод Отсу, переизобретать не нужно, как и с LANCZOS в resize.py).
+         invert=False по умолчанию (полезные пиксели белые, фон чёрный —
+         как в статье). batch-вариант binarize_directory (тот же контракт,
+         что resize_directory/center_directory: вход/выход-директория,
+         glob pattern). Применяется ТОЛЬКО к этапу проекции — статья
+         явно: "for the task of tumor type detection... binarization is
+         not performed".
+       - DatasetConfig.paths[cls]["binarized"] — новый путь (root/4_{cls}_
+         binarized), НЕ входит в default stages create_directories() (это
+         опциональная стадия, не часть обычного tumor-type пайплайна).
+       - pipeline/stages.py::stage_binarize + STAGE_REGISTRY["binarize"] —
+         centered -> binarized, вызывается явно через run_stage("binarize",
+         ...), не входит в run_class()/run_all_classes().
+       - models/sequential_classifier.py::SequentialClassifier — универсальная
+         (не привязана к SubspaceConjugacyClassifier) композиция
+         classifier этапа 1 + Dict[label, classifier] этапа 2:
+         fit(X1, y1, X2_by_group, y2_by_group) обучает каждый классификатор
+         на СВОИХ данных (как в статье — разные датасеты для проекции и
+         для типа опухоли, не общий датасет с двумя параллельными
+         метками); predict(X1, X2) -> (stage1_pred, stage2_pred), где
+         этап 2 применяется к классификатору, соответствующему
+         ПРЕДСКАЗАННОЙ метке этапа 1 — буквально "the result obtained at
+         the previous stage of classification becomes a set of data for
+         the next stage". predict_stage2(X2, labels) отдельно принимает
+         либо предсказанные, либо истинные метки этапа 1 (для изолированной
+         оценки качества этапа 2). is_fitted_ — вычисляемое свойство
+         (True сразу, если переданы уже обученные классификаторы).
+       Тесты: tests/test_preprocessing.py::TestOtsuBinarization/
+       TestBinarizeDirectory, tests/test_pipeline.py::TestRunStageBinarize,
+       tests/test_sequential_classifier.py, tests/test_config.py (путь
+       "binarized").
+
+  №5 Фильтр малоинформативных изображений (доля белых пикселей < 50% от
+     средней по выборке, статья: 3-й эксперимент) — измеримо поднимает
+     accuracy в статье, в библиотеке отсутствует.
+     ✅ ИСПРАВЛЕНО 2026-09-20 (та же архитектура, что и у LinearDependencyFilter
+     из находки №3 — fit/transform, kept_indices_/excluded_indices_,
+     remapping в пространство исходного X):
+       - algorithms/informativeness_filter.py::LowInformativenessFilter —
+         буквальная реализация цитаты статьи: "images with the number of
+         white pixels less than 50% of the average number of white pixels
+         in the images of the set are cut off". Работает на уже
+         ВЕКТОРИЗОВАННЫХ данных (подсчёт "белых" элементов вектора вместо
+         пикселей изображения — эквивалентно, порядок обхода при
+         векторизации не важен для суммы), поэтому умещается в тот же слой,
+         что и LinearDependencyFilter, а не в preprocessing/. "Белый"
+         элемент — >= brightness_threshold (default=10, согласовано с
+         preprocessing.normalization.DEFAULT_THRESHOLD). Порог отсечения =
+         min_fraction_of_mean (default=0.5, буквально "50%") * среднее
+         число белых элементов по ВСЕЙ переданной выборке.
+       - FursovClusterer(filter_low_informativeness=False (default),
+         informativeness_threshold=10, informativeness_min_fraction=0.5) —
+         применяется КАК ФАЗА 0a, ПЕРЕД LinearDependencyFilter (фаза 0b,
+         находка №3): сначала отбрасываем малоинформативные образы
+         (проблема качества данных), затем — почти дублирующие среди
+         оставшихся (проблема избыточности данных). Если оба фильтра
+         включены — LinearDependencyFilter.fit() вызывается уже на
+         survivors фазы 0a, а не на полном X. excluded_indices_ теперь —
+         np.union1d двух отдельных атрибутов excluded_by_informativeness_ и
+         excluded_by_dependency_ (оба всегда заполнены — пустым массивом,
+         если соответствующий фильтр выключен), в пространстве индексов
+         ИСХОДНОГО X, как и раньше для excluded_indices_/kept_indices_/
+         center_indices_/initial_pairs_.
+       - SubspaceConjugacyClassifier(filter_low_informativeness=False
+         (default), informativeness_threshold=10,
+         informativeness_min_fraction=0.5) — прокидывается в
+         FursovClusterer НЕЗАВИСИМО для каждого класса (среднее число
+         "белых" элементов считается по объектам ЭТОГО класса, не по всей
+         выборке — согласовано с тем, как n_subclasses/filter_dependent уже
+         применяются независимо на класс). excluded_indices_by_class_
+         теперь заполняется, если ЛЮБОЙ из двух фильтров включён (было:
+         только filter_dependent) — семантика не изменилась для тех, кто
+         не включал filter_dependent (по умолчанию оба фильтра выключены,
+         атрибут остаётся None).
+       Дефолты обоих новых параметров — выключено, обратная совместимость
+       не нарушена.
+       Тесты: tests/test_algorithms/test_informativeness_filter.py,
+       tests/test_algorithms/test_fursov_clusterer.py::
+       TestFursovClustererInformativenessFilter/TestFursovClustererCombinedFilters,
+       tests/test_classifier.py::TestFilterLowInformativeness.
+
+  №6 Датасет/сплит статьи (300/375/450 изображений, 80/20) отличается от
+     жёстких 100 train + 75 test исходных ноутбуков — не баг, контекст:
+     текущие дефолты (n_subclasses=8 и т.п.) унаследованы от ноутбуков, а
+     не выведены из экспериментов статьи.
+
+================================================================================
 КОНЕЦ ДОКУМЕНТА
 ================================================================================

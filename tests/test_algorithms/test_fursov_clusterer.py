@@ -420,5 +420,259 @@ class TestFursovClustererProperties:
             assert pairs[i, 0] == center
 
 
+@pytest.mark.theory
+class TestFursovClustererDependencyFilter:
+    """filter_dependent=True — исключение почти линейно зависимых
+    эталонных векторов перед кластеризацией (Korshikov & Fursov, "Problem
+    Definition"; refactoring_plan.txt, раздел 10, находка №3). По умолчанию
+    выключено — эти тесты явно проверяют и включённый, и отключённый режим
+    для отсутствия регрессии в поведении по умолчанию.
+    """
+
+    def test_disabled_by_default_no_exclusions(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(n_subclasses=4)
+        clusterer.fit(X)
+
+        assert clusterer.excluded_indices_.size == 0
+        np.testing.assert_array_equal(clusterer.kept_indices_, np.arange(40))
+        assert np.all(clusterer.labels_ >= 0)  # никто не помечен -1
+
+    def test_near_duplicate_excluded_and_labeled_minus_one(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+        X[35] = X[0] * 2.0 + 1e-7  # почти точный дубликат X[0]
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_dependent=True, dependency_threshold=0.999
+        )
+        clusterer.fit(X)
+
+        assert 35 in clusterer.excluded_indices_
+        assert clusterer.labels_[35] == -1
+        assert clusterer.labels_.shape == (40,)
+
+    def test_kept_vectors_still_get_valid_subclass_labels(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+        X[35] = X[0] * 2.0 + 1e-7
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_dependent=True, dependency_threshold=0.999
+        )
+        clusterer.fit(X)
+
+        kept_labels = clusterer.labels_[clusterer.kept_indices_]
+        assert np.all(kept_labels >= 0)
+        assert np.all(kept_labels < 4)
+
+    def test_indices_remapped_to_original_x_space(self):
+        """center_indices_/initial_pairs_/get_initial_pair() должны
+        индексировать ИСХОДНЫЙ X, а не отфильтрованное подмножество —
+        иначе X[clusterer.center_indices_] вернёт неверные строки."""
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+        X[35] = X[0] * 2.0 + 1e-7
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_dependent=True, dependency_threshold=0.999
+        )
+        clusterer.fit(X)
+
+        assert clusterer.center_indices_.max() < 40
+        assert 35 not in clusterer.center_indices_  # исключённый не может быть центром
+        assert clusterer.initial_pairs_.max() < 40
+
+        pair = clusterer.get_initial_pair()
+        assert max(pair) < 40
+
+        # Базисы должны быть линейными комбинациями РЕАЛЬНЫХ строк X.
+        for idx in clusterer.center_indices_:
+            assert idx in clusterer.kept_indices_
+
+    def test_subclass_sizes_sum_to_kept_not_original_count(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+        X[35] = X[0] * 2.0 + 1e-7
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_dependent=True, dependency_threshold=0.999
+        )
+        clusterer.fit(X)
+
+        assert clusterer.get_subclass_sizes().sum() == len(clusterer.kept_indices_)
+        assert clusterer.get_subclass_sizes().sum() == 40 - len(clusterer.excluded_indices_)
+
+    def test_too_many_exclusions_raises_value_error(self):
+        """Если после фильтрации осталось меньше 2*n_subclasses векторов —
+        явная ошибка, а не тихая деградация кластеризации."""
+        np.random.seed(42)
+        base = np.random.randn(256)
+        X = np.vstack([base * (1.0 + i * 1e-9) for i in range(20)])  # все почти идентичны
+
+        clusterer = FursovClusterer(
+            n_subclasses=8, filter_dependent=True, dependency_threshold=0.999
+        )
+        with pytest.raises(ValueError, match="фильтрации"):
+            clusterer.fit(X)
+
+    def test_invalid_dependency_threshold_raises(self):
+        with pytest.raises(ValueError):
+            FursovClusterer(filter_dependent=True, dependency_threshold=1.5)
+        with pytest.raises(ValueError):
+            FursovClusterer(filter_dependent=True, dependency_threshold=0.0)
+
+    def test_predict_on_new_data_unaffected_by_filter(self):
+        """filter_dependent касается только обучающих векторов; predict()
+        на новых данных работает как обычно."""
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+        X[35] = X[0] * 2.0 + 1e-7
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_dependent=True, dependency_threshold=0.999
+        )
+        clusterer.fit(X)
+
+        X_new = np.random.randn(5, 256)
+        preds = clusterer.predict(X_new)
+        assert preds.shape == (5,)
+        assert np.all((preds >= 0) & (preds < 4))
+
+
+class TestFursovClustererInformativenessFilter:
+    """filter_low_informativeness=True — исключение малоинформативных
+    эталонных векторов перед кластеризацией (Korshikov & Fursov, 3-й
+    эксперимент; refactoring_plan.txt, раздел 10, находка №5). По умолчанию
+    выключено — эти тесты явно проверяют и включённый, и отключённый режим
+    для отсутствия регрессии в поведении по умолчанию.
+    """
+
+    def test_disabled_by_default_no_exclusions(self):
+        np.random.seed(42)
+        X = np.random.uniform(100, 255, size=(40, 256))
+
+        clusterer = FursovClusterer(n_subclasses=4)
+        clusterer.fit(X)
+
+        assert clusterer.excluded_indices_.size == 0
+        assert clusterer.excluded_by_informativeness_.size == 0
+        np.testing.assert_array_equal(clusterer.kept_indices_, np.arange(40))
+        assert np.all(clusterer.labels_ >= 0)
+
+    def test_low_informativeness_excluded_and_labeled_minus_one(self):
+        np.random.seed(42)
+        X = np.random.uniform(100, 255, size=(40, 256))
+        X[35] = 0.0  # почти полностью "фоновый" вектор
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_low_informativeness=True,
+        )
+        clusterer.fit(X)
+
+        assert 35 in clusterer.excluded_by_informativeness_
+        assert 35 in clusterer.excluded_indices_
+        assert clusterer.labels_[35] == -1
+        assert clusterer.labels_.shape == (40,)
+
+    def test_kept_vectors_still_get_valid_subclass_labels(self):
+        np.random.seed(42)
+        X = np.random.uniform(100, 255, size=(40, 256))
+        X[35] = 0.0
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_low_informativeness=True,
+        )
+        clusterer.fit(X)
+
+        kept_labels = clusterer.labels_[clusterer.kept_indices_]
+        assert np.all(kept_labels >= 0)
+        assert np.all(kept_labels < 4)
+
+    def test_indices_remapped_to_original_x_space(self):
+        np.random.seed(42)
+        X = np.random.uniform(100, 255, size=(40, 256))
+        X[35] = 0.0
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_low_informativeness=True,
+        )
+        clusterer.fit(X)
+
+        assert clusterer.center_indices_.max() < 40
+        assert 35 not in clusterer.center_indices_
+        for idx in clusterer.center_indices_:
+            assert idx in clusterer.kept_indices_
+
+    def test_invalid_informativeness_min_fraction_raises(self):
+        with pytest.raises(ValueError):
+            FursovClusterer(filter_low_informativeness=True, informativeness_min_fraction=1.5)
+        with pytest.raises(ValueError):
+            FursovClusterer(filter_low_informativeness=True, informativeness_min_fraction=0.0)
+
+    def test_predict_on_new_data_unaffected_by_filter(self):
+        np.random.seed(42)
+        X = np.random.uniform(100, 255, size=(40, 256))
+        X[35] = 0.0
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, filter_low_informativeness=True,
+        )
+        clusterer.fit(X)
+
+        X_new = np.random.uniform(100, 255, size=(5, 256))
+        preds = clusterer.predict(X_new)
+        assert preds.shape == (5,)
+        assert np.all((preds >= 0) & (preds < 4))
+
+
+class TestFursovClustererCombinedFilters:
+    """Оба фильтра включены одновременно — сначала LowInformativenessFilter
+    (0a), затем LinearDependencyFilter (0b) на выживших после 0a
+    (refactoring_plan.txt, раздел 10, находка №5)."""
+
+    def test_both_filters_chain_and_union_into_excluded_indices(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256) * 50 + 150  # положительные "яркие" значения
+        X[10] = 0.0  # малоинформативный
+        X[20] = X[0] * 1.0 + 1e-9  # почти линейно зависимый от X[0]
+
+        clusterer = FursovClusterer(
+            n_subclasses=4,
+            filter_low_informativeness=True,
+            filter_dependent=True,
+            dependency_threshold=0.999,
+        )
+        clusterer.fit(X)
+
+        assert 10 in clusterer.excluded_by_informativeness_
+        assert 20 in clusterer.excluded_by_dependency_
+        assert 10 in clusterer.excluded_indices_
+        assert 20 in clusterer.excluded_indices_
+        assert clusterer.labels_[10] == -1
+        assert clusterer.labels_[20] == -1
+        assert clusterer.get_subclass_sizes().sum() == len(clusterer.kept_indices_)
+
+    def test_informativeness_filter_runs_before_dependency_filter(self):
+        """Вектор, исключённый как малоинформативный, не должен попасть в
+        LinearDependencyFilter (проверяется по тому, что он не появляется
+        в excluded_by_dependency_, только в excluded_by_informativeness_)."""
+        np.random.seed(42)
+        X = np.random.randn(40, 256) * 50 + 150
+        X[10] = 0.0
+
+        clusterer = FursovClusterer(
+            n_subclasses=4,
+            filter_low_informativeness=True,
+            filter_dependent=True,
+            dependency_threshold=0.999,
+        )
+        clusterer.fit(X)
+
+        assert 10 not in clusterer.excluded_by_dependency_
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-m", "theory"])

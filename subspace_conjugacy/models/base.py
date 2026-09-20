@@ -6,7 +6,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union
+from typing import Any, Mapping, Optional, Tuple, Union
 import numpy as np
 from sklearn.base import BaseEstimator
 
@@ -18,8 +18,15 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
 
     Parameters
     ----------
-    n_subclasses : int, default=8
-        Количество подклассов (подпространств), формируемых для каждого класса.
+    n_subclasses : int or Mapping[Any, int], default=8
+        Количество подклассов (подпространств), формируемых для каждого
+        класса. Если задан словарём {class_label: n_subclasses} — каждый
+        класс кластеризуется на своё число подклассов (статья Korshikov &
+        Fursov, "Description of the Clustering Method": оптимальное число
+        подклассов для разных классов патологий, как правило, различается).
+        Разрешение словаря по фактическим меткам классов — задача
+        конкретного эстиматора (см. SubspaceConjugacyClassifier._resolve_n_subclasses),
+        здесь проверяется только то, что переданы допустимые значения.
     n_centers_init : int, default=2
         Количество начальных опорных векторов (центров) для каждого подкласса.
     reg_param : float, default=1e-8
@@ -35,7 +42,7 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
 
     def __init__(
         self,
-        n_subclasses: int = 8,
+        n_subclasses: Union[int, Mapping[Any, int]] = 8,
         n_centers_init: int = 2,
         reg_param: float = 1e-8,
     ) -> None:
@@ -53,7 +60,21 @@ class BaseSubspaceEstimator(BaseEstimator, ABC):
         ValueError
             Если параметры выходят за допустимые границы.
         """
-        if self.n_subclasses <= 0:
+        if isinstance(self.n_subclasses, Mapping):
+            if not self.n_subclasses:
+                logger.error("%s._validate_input_params: n_subclasses — пустой словарь.", type(self).__name__)
+                raise ValueError("Параметр n_subclasses не может быть пустым словарём.")
+            for cls, value in self.n_subclasses.items():
+                if not isinstance(value, (int, np.integer)) or value <= 0:
+                    logger.error(
+                        "%s._validate_input_params: n_subclasses[%r]=%s должен быть > 0.",
+                        type(self).__name__, cls, value,
+                    )
+                    raise ValueError(
+                        f"n_subclasses['{cls}'] должен быть целым положительным числом, "
+                        f"получено {value!r}."
+                    )
+        elif self.n_subclasses <= 0:
             logger.error(
                 "%s._validate_input_params: n_subclasses=%s <= 0.",
                 type(self).__name__, self.n_subclasses,

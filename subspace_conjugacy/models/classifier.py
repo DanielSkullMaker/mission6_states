@@ -2,23 +2,40 @@
 
 Реализует Фазу C теории (refactoring_plan.txt, раздел 1.4) и NB8
 (8_Fursov_classification.ipynb): для каждого класса патологии строится
-n_subclasses подпространств Y_{c,s} (N x k, k = freeze_basis_at = 2),
-итого C x n_subclasses подпространств. Классификация — плоский argmax
-показателя сопряженности R(x, Y) по ВСЕМ подпространствам сразу, после
-чего подкласс сопоставляется владеющему им классу.
+n_subclasses подпространств Y_{c,s} (N x k), итого C x n_subclasses
+подпространств. Классификация — плоский argmax показателя сопряженности
+R(x, Y) по ВСЕМ подпространствам сразу, после чего подкласс сопоставляется
+владеющему им классу.
 
 Кластеризация внутри каждого класса делегирована каноническому
 FursovClusterer (фазы A.1->A.3->B.1->B.2, algorithms/fursov_clusterer.py) —
 единственная реализация метода в библиотеке (refactoring_plan.txt, раздел 6,
 п.1-2: канон как единственный путь, без дублирования conjugate_criterion).
+
+Размер базиса k каждого подпространства управляется freeze_basis_at:
+  - int (по умолчанию 2) — фиксированный k для всех подпространств, как в
+    NB6-8: ConjugacyClusterGrowth растит подпространство ВСЕГДА до конца
+    (независимо от freeze_basis_at — рост векторов на итерации и заморозка
+    размера на выходе не связаны по стоимости), но на выходе остаются
+    только первые k столбцов — т.е. фактически исходная пара из фазы B.1,
+    а всё, что подпространство "набрало" в фазе B.2, отбрасывается.
+  - "auto" — НЕ отбрасывает рост: каждый класс кластеризуется с
+    freeze_basis_at=None (полный рост), а после того как ВСЕ классы
+    обучены, все подпространства усекаются до общего МИНИМАЛЬНОГО
+    наблюдённого k (algorithms.subclass_export.equalize_subspace_bases) —
+    это буквальный рецепт статьи Korshikov & Fursov ("Description of the
+    Clustering Method": "...only the first n elements corresponding to the
+    number of vectors of the smallest space are taken for each vector"),
+    см. refactoring_plan.txt, раздел 10, находка №2.
 """
 
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Mapping, Optional, Union
 import numpy as np
 from sklearn.base import ClassifierMixin
 
 from subspace_conjugacy.algorithms.fursov_clusterer import FursovClusterer
+from subspace_conjugacy.algorithms.subclass_export import equalize_subspace_bases
 from subspace_conjugacy.core.metrics import conjugate_criterion
 from subspace_conjugacy.models.base import BaseSubspaceEstimator
 
@@ -27,17 +44,51 @@ logger = logging.getLogger(__name__)
 ClassLabel = Union[int, str, float]
 
 
-class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
+# ClassifierMixin ДОЛЖЕН идти первым в списке баз ниже: в современном
+# sklearn is_classifier(estimator) резолвит __sklearn_tags__ через MRO, и
+# при обратном порядке (BaseSubspaceEstimator, ClassifierMixin) тег
+# "classifier" перекрывается дефолтным из BaseEstimator. Итог —
+# is_classifier() == False, и sklearn (GridSearchCV/RandomizedSearchCV/
+# cross_val_score с целочисленным cv) молча использует обычный KFold вместо
+# StratifiedKFold, что на данных, сгруппированных по классам, даёт
+# полностью неверный (например, accuracy≡0) score. См. model_selection/.
+class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
     """Классификатор многомерных данных на основе подпространств (теория C).
 
     Parameters
     ----------
-    n_subclasses : int, default=8
-        Количество подклассов (подпространств), формируемых для каждого класса.
-    freeze_basis_at : int, default=2
-        Размер базиса каждого подкласса после кластеризации (k). Теория
-        Фазы C требует фиксированного k=2 для всех подпространств
-        классификатора (refactoring_plan.txt, раздел 6, п.9).
+    n_subclasses : int or Mapping[ClassLabel, int], default=8
+        Количество подклассов (подпространств), формируемых для каждого
+        класса. Целое число — одинаковое число подклассов для всех классов
+        (поведение по умолчанию, как раньше). Словарь {class_label: int} —
+        независимая настройка на класс: статья Korshikov & Fursov
+        ("Description of the Clustering Method") явно отмечает, что
+        оптимальное число подклассов для разных патологий, как правило,
+        различается (см. также Table I в статье — glioma/meningioma/pituitary
+        достигают максимума accuracy при разном числе подклассов). При
+        словаре ключи ДОЛЖНЫ покрывать все классы, встречающиеся в y при
+        fit() — иначе ValueError с списком недостающих классов; лишние
+        ключи (классов, которых нет в y) допускаются и игнорируются с
+        предупреждением в лог (например, если словарь общий для нескольких
+        похожих датасетов). Фактически использованные значения после fit()
+        доступны в self.n_subclasses_by_class_.
+    freeze_basis_at : int or "auto", default=2
+        Размер базиса каждого подпространства после кластеризации (k).
+        - int (>= 2) — классическое поведение (совпадает с NB6-8 и всеми
+          более ранними версиями библиотеки): каждый подкласс получает
+          ровно этот k, независимо от того, сколько векторов реально
+          "выиграли" argmax R на фазе B.2 — берутся только первые k
+          столбцов (исходная пара из B.1 при k=2).
+        - "auto" — НЕ отбрасывает результат роста B.2: каждый класс растится
+          без ограничения (freeze_basis_at=None внутри FursovClusterer), а
+          после кластеризации ВСЕХ классов подпространства усекаются до
+          общего минимального фактически достигнутого k
+          (equalize_subspace_bases) — так делает статья Korshikov & Fursov,
+          чтобы R(x, Y) оставался сопоставим между подпространствами разного
+          размера, не жертвуя всем, что подпространство накопило при росте.
+          Итоговое k — в self.equalized_basis_size_ после fit().
+        ⚠ "auto" — только для fit(); fit_from_subclass_bases() использует
+        уже готовые базисы "как есть", без усечения.
     growth_strategy : {"default", "master"}, default="default"
         Стратегия наполнения кластеров в FursovClusterer (Фаза B.2):
         "default" — argmax R(x, Y_s); "master" — ratio к среднему,
@@ -45,6 +96,37 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         (см. algorithms/subclass_growth.py, docstring модуля).
     reg_param : float, default=1e-8
         Коэффициент регуляризации при обращении матрицы Грама.
+    filter_dependent : bool, default=False
+        Если True — перед кластеризацией КАЖДОГО класса исключает почти
+        линейно зависимые эталонные векторы (LinearDependencyFilter,
+        algorithms/reference_filter.py) — статья Korshikov & Fursov,
+        "Problem Definition": "almost linearly dependent vectors are
+        excluded from the set of reference vectors" (refactoring_plan.txt,
+        раздел 10, находка №3). Исключённые объекты никогда не участвуют в
+        кластеризации своего класса; их индексы (в исходном X, переданном в
+        fit()) — в self.excluded_indices_by_class_. По умолчанию выключено —
+        обратная совместимость.
+    dependency_threshold : float, default=0.999
+        Порог показателя сопряжённости для LinearDependencyFilter. Действует
+        только если filter_dependent=True.
+    filter_low_informativeness : bool, default=False
+        Если True — перед кластеризацией КАЖДОГО класса (и перед фильтром
+        зависимости, если он тоже включён) исключает малоинформативные
+        эталонные векторы (LowInformativenessFilter,
+        algorithms/informativeness_filter.py) — статья Korshikov & Fursov,
+        3-й эксперимент: "images with the number of white pixels less than
+        50% of the average... are cut off" (refactoring_plan.txt, раздел
+        10, находка №5). Порог "белых" пикселей считается НЕЗАВИСИМО в
+        каждом классе (среднее по объектам ЭТОГО класса, не по всей
+        выборке) — так же, как n_subclasses/filter_dependent применяются
+        независимо на класс. По умолчанию выключено — обратная совместимость.
+    informativeness_threshold : float, default=10
+        Порог яркости "белого"/полезного элемента для LowInformativenessFilter.
+        Действует только если filter_low_informativeness=True.
+    informativeness_min_fraction : float, default=0.5
+        Минимальная допустимая доля от среднего числа "белых" элементов по
+        выборке класса (статья: 0.5 = 50%). Действует только если
+        filter_low_informativeness=True.
 
     Attributes
     ----------
@@ -56,14 +138,37 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         Метка класса для каждого "плоского" подпространства (используется
         predict_subclass/predict_r_matrix_flat); длина = сумма n_subclasses
         по всем классам, порядок соответствует classes_ и порядку в subspaces_.
+    n_subclasses_by_class_ : Dict[ClassLabel, int] or None
+        Фактически использованное число подклассов для каждого класса после
+        fit() — всегда словарь, даже если n_subclasses был передан как int
+        (тогда все значения одинаковы). Удобно для интроспекции при
+        n_subclasses=dict.
+    equalized_basis_size_ : int or None
+        Заполняется только когда freeze_basis_at="auto": итоговый общий
+        размер базиса k, до которого были усечены ВСЕ подпространства всех
+        классов (минимум среди фактически выросших размеров). None, если
+        freeze_basis_at был int (усечение делает FursovClusterer напрямую,
+        равнять между классами не требуется — все и так одного размера) или
+        модель заполнена через fit_from_subclass_bases().
+    excluded_indices_by_class_ : Dict[ClassLabel, np.ndarray] or None
+        Заполняется только когда filter_dependent=True и/или
+        filter_low_informativeness=True: {class_label: индексы (в исходном
+        X, переданном в fit()) векторов ЭТОГО класса, исключённых хотя бы
+        одним из включённых фильтров — объединение, тем же способом, что и
+        FursovClusterer.excluded_indices_}. None, если оба фильтра выключены.
     """
 
     def __init__(
         self,
-        n_subclasses: int = 8,
-        freeze_basis_at: int = 2,
+        n_subclasses: Union[int, Mapping[ClassLabel, int]] = 8,
+        freeze_basis_at: Union[int, str, None] = 2,
         growth_strategy: str = "default",
         reg_param: float = 1e-8,
+        filter_dependent: bool = False,
+        dependency_threshold: float = 0.999,
+        filter_low_informativeness: bool = False,
+        informativeness_threshold: float = 10,
+        informativeness_min_fraction: float = 0.5,
     ) -> None:
         super().__init__(
             n_subclasses=n_subclasses,
@@ -72,9 +177,17 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         )
         self.freeze_basis_at = freeze_basis_at
         self.growth_strategy = growth_strategy
+        self.filter_dependent = filter_dependent
+        self.dependency_threshold = dependency_threshold
+        self.filter_low_informativeness = filter_low_informativeness
+        self.informativeness_threshold = informativeness_threshold
+        self.informativeness_min_fraction = informativeness_min_fraction
         self.classes_: Optional[np.ndarray] = None
         self.subspaces_: Dict[ClassLabel, List[np.ndarray]] = {}
         self.flat_subclass_labels_: Optional[np.ndarray] = None
+        self.n_subclasses_by_class_: Optional[Dict[ClassLabel, int]] = None
+        self.equalized_basis_size_: Optional[int] = None
+        self.excluded_indices_by_class_: Optional[Dict[ClassLabel, np.ndarray]] = None
 
     def fit(
         self, X: np.ndarray, y: np.ndarray
@@ -104,11 +217,14 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
             raise ValueError("Для обучения классификатора необходимы метки y.")
 
         self.classes_ = np.unique(y_clean)
+        n_subclasses_by_class = self._resolve_n_subclasses(self.classes_)
+        use_auto_equalization = self.freeze_basis_at == "auto"
+        effective_freeze_basis_at = self._resolve_freeze_basis_at()
         logger.info(
             "SubspaceConjugacyClassifier.fit: старт, %d объектов, классы=%s, "
-            "n_subclasses=%d, growth_strategy=%s.",
-            X_clean.shape[0], list(self.classes_), self.n_subclasses,
-            self.growth_strategy,
+            "n_subclasses=%s, freeze_basis_at=%r, growth_strategy=%s.",
+            X_clean.shape[0], list(self.classes_), n_subclasses_by_class,
+            self.freeze_basis_at, self.growth_strategy,
         )
         if len(self.classes_) < 2:
             logger.error(
@@ -121,47 +237,161 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
 
         self.n_features_in_ = X_clean.shape[1]
         self.subspaces_ = {}
+        any_filter_enabled = self.filter_dependent or self.filter_low_informativeness
+        excluded_indices_by_class = {} if any_filter_enabled else None
 
         for cls in self.classes_:
-            X_cls = X_clean[y_clean == cls]
+            cls_global_indices = np.where(y_clean == cls)[0]
+            X_cls = X_clean[cls_global_indices]
+            n_subclasses_cls = n_subclasses_by_class[cls]
             logger.info(
-                "SubspaceConjugacyClassifier.fit: класс '%s' — кластеризация %d объектов.",
-                cls, X_cls.shape[0],
+                "SubspaceConjugacyClassifier.fit: класс '%s' — кластеризация %d объектов "
+                "на %d подклассов.", cls, X_cls.shape[0], n_subclasses_cls,
             )
-            if X_cls.shape[0] < self.n_subclasses:
+            if X_cls.shape[0] < n_subclasses_cls:
                 logger.error(
                     "SubspaceConjugacyClassifier.fit: класс '%s' содержит %d объектов "
-                    "< n_subclasses=%d.", cls, X_cls.shape[0], self.n_subclasses,
+                    "< n_subclasses=%d.", cls, X_cls.shape[0], n_subclasses_cls,
                 )
                 raise ValueError(
                     f"Класс '{cls}' содержит {X_cls.shape[0]} объектов, "
-                    f"что меньше числа подклассов ({self.n_subclasses})."
+                    f"что меньше числа подклассов ({n_subclasses_cls})."
                 )
 
             clusterer = FursovClusterer(
-                n_subclasses=self.n_subclasses,
-                freeze_basis_at=self.freeze_basis_at,
+                n_subclasses=n_subclasses_cls,
+                freeze_basis_at=effective_freeze_basis_at,
                 growth_strategy=self.growth_strategy,
                 reg_param=self.reg_param,
+                filter_dependent=self.filter_dependent,
+                dependency_threshold=self.dependency_threshold,
+                filter_low_informativeness=self.filter_low_informativeness,
+                informativeness_threshold=self.informativeness_threshold,
+                informativeness_min_fraction=self.informativeness_min_fraction,
             )
             clusterer.fit(X_cls)
             self.subspaces_[cls] = clusterer.subspaces_
             logger.debug(
-                "SubspaceConjugacyClassifier.fit: класс '%s' готов, %d подпространств.",
-                cls, len(clusterer.subspaces_),
+                "SubspaceConjugacyClassifier.fit: класс '%s' готов, %d подпространств "
+                "(размеры базисов: %s).", cls, len(clusterer.subspaces_),
+                [Y.shape[1] for Y in clusterer.subspaces_],
             )
 
+            if any_filter_enabled:
+                # clusterer.excluded_indices_ — индексы внутри X_cls (подвыборки
+                # этого класса, объединение обоих фильтров), переводим в
+                # индексы исходного X, переданного в fit(), чтобы пользователь
+                # мог писать X[excluded] без необходимости самостоятельно
+                # восстанавливать маску по y.
+                excluded_indices_by_class[cls] = cls_global_indices[
+                    clusterer.excluded_indices_
+                ]
+                if len(clusterer.excluded_indices_) > 0:
+                    logger.warning(
+                        "SubspaceConjugacyClassifier.fit: класс '%s' — %d "
+                        "объект(ов) исключены фильтрами (малоинформативные: %d, "
+                        "почти линейно зависимые: %d).",
+                        cls, len(clusterer.excluded_indices_),
+                        len(clusterer.excluded_by_informativeness_),
+                        len(clusterer.excluded_by_dependency_),
+                    )
+
+        self.excluded_indices_by_class_ = excluded_indices_by_class
+
+        if use_auto_equalization:
+            self.subspaces_, self.equalized_basis_size_ = equalize_subspace_bases(
+                self.subspaces_
+            )
+        else:
+            self.equalized_basis_size_ = None
+
+        self.n_subclasses_by_class_ = n_subclasses_by_class
         self.flat_subclass_labels_ = self._build_flat_subclass_labels()
         self.is_fitted_ = True
         logger.info(
-            "SubspaceConjugacyClassifier.fit: готово, %d классов x %d подклассов = "
-            "%d подпространств всего.",
-            len(self.classes_), self.n_subclasses, len(self.flat_subclass_labels_),
+            "SubspaceConjugacyClassifier.fit: готово, %d подпространств всего "
+            "(по классам: %s)%s.",
+            len(self.flat_subclass_labels_), n_subclasses_by_class,
+            f", equalized_basis_size_={self.equalized_basis_size_}" if use_auto_equalization else "",
         )
         return self
 
+    def _resolve_freeze_basis_at(self) -> Optional[int]:
+        """Транслирует self.freeze_basis_at в значение для FursovClusterer.
+
+        "auto" -> None (полный рост без ограничения; равнение между классами
+        применяется отдельно, после кластеризации ВСЕХ классов — см. fit(),
+        FursovClusterer ничего не знает о других классах). None -> None без
+        изменений (полный рост, БЕЗ автоматического равнения — на свой риск,
+        R(x, Y) между подпространствами разного размера тогда не гарантированно
+        сопоставим). int -> проверяется и возвращается как есть.
+
+        Raises
+        ------
+        ValueError
+            Если freeze_basis_at — не None, не "auto" и не целое >= 2.
+        """
+        if self.freeze_basis_at is None or self.freeze_basis_at == "auto":
+            return None
+        if not isinstance(self.freeze_basis_at, (int, np.integer)) or self.freeze_basis_at < 2:
+            logger.error(
+                "SubspaceConjugacyClassifier._resolve_freeze_basis_at: "
+                "freeze_basis_at=%r недопустим.", self.freeze_basis_at,
+            )
+            raise ValueError(
+                "freeze_basis_at должен быть целым числом >= 2, None или "
+                f"'auto', получено {self.freeze_basis_at!r}."
+            )
+        return int(self.freeze_basis_at)
+
+    def _resolve_n_subclasses(self, classes: np.ndarray) -> Dict[ClassLabel, int]:
+        """Разворачивает self.n_subclasses (int или dict) в словарь по классам.
+
+        Parameters
+        ----------
+        classes : np.ndarray
+            Уникальные метки классов обучающей выборки (self.classes_).
+
+        Returns
+        -------
+        n_subclasses_by_class : Dict[ClassLabel, int]
+            {class_label: n_subclasses} для каждого класса из ``classes``.
+
+        Raises
+        ------
+        ValueError
+            Если self.n_subclasses — словарь, но не содержит значения хотя
+            бы для одного класса из ``classes``.
+        """
+        if not isinstance(self.n_subclasses, Mapping):
+            return {cls: int(self.n_subclasses) for cls in classes}
+
+        missing = [cls for cls in classes if cls not in self.n_subclasses]
+        if missing:
+            logger.error(
+                "SubspaceConjugacyClassifier._resolve_n_subclasses: n_subclasses "
+                "не содержит значения для классов %s (есть ключи: %s).",
+                missing, list(self.n_subclasses.keys()),
+            )
+            raise ValueError(
+                "n_subclasses задан словарём, но не содержит значения для "
+                f"классов: {missing}. Есть ключи: {list(self.n_subclasses.keys())}."
+            )
+
+        extra = [key for key in self.n_subclasses if key not in set(classes)]
+        if extra:
+            logger.warning(
+                "SubspaceConjugacyClassifier._resolve_n_subclasses: ключи n_subclasses "
+                "%s отсутствуют среди классов обучающей выборки %s — игнорируются.",
+                extra, list(classes),
+            )
+
+        return {cls: int(self.n_subclasses[cls]) for cls in classes}
+
     def fit_from_subclass_bases(
-        self, subspaces_by_class: Dict[ClassLabel, List[np.ndarray]]
+        self,
+        subspaces_by_class: Dict[ClassLabel, List[np.ndarray]],
+        equalize: bool = False,
     ) -> "SubspaceConjugacyClassifier":
         """Собирает классификатор из уже готовых базисов подклассов.
 
@@ -175,7 +405,17 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         subspaces_by_class : Dict[ClassLabel, List[np.ndarray]]
             Словарь {class_label: [Y_0, Y_1, ..., Y_{S-1}]}, где каждый
             Y_s — базисная матрица подкласса размерности (N, k). Размерность
-            N должна совпадать для всех базисов всех классов.
+            N должна совпадать для всех базисов всех классов; k может
+            отличаться между подклассами/классами, если equalize=True
+            (иначе см. предупреждение в predict_r_matrix_flat про
+            несопоставимость R(x, Y) для базисов разного размера).
+        equalize : bool, default=False
+            Если True — перед использованием усекает все базисы всех
+            классов до общего минимального k (equalize_subspace_bases, тот
+            же механизм, что и SubspaceConjugacyClassifier(freeze_basis_at=
+            "auto") в fit()). Нужно, например, когда базисы получены через
+            FursovPipeline.run_class(..., freeze_basis_at=None) независимо
+            для каждого класса и могли вырасти до разных k.
 
         Returns
         -------
@@ -204,11 +444,21 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
                 f"признаков N. Получено значений N: {sorted(n_features_set)}."
             )
 
+        if equalize:
+            subspaces_by_class, self.equalized_basis_size_ = equalize_subspace_bases(
+                subspaces_by_class
+            )
+        else:
+            self.equalized_basis_size_ = None
+
         self.classes_ = np.array(list(subspaces_by_class.keys()))
         self.subspaces_ = {
             cls: list(bases) for cls, bases in subspaces_by_class.items()
         }
         self.n_features_in_ = n_features_set.pop()
+        self.n_subclasses_by_class_ = {
+            cls: len(bases) for cls, bases in self.subspaces_.items()
+        }
         self.flat_subclass_labels_ = self._build_flat_subclass_labels()
         self.is_fitted_ = True
         logger.info(
@@ -238,6 +488,19 @@ class SubspaceConjugacyClassifier(BaseSubspaceEstimator, ClassifierMixin):
         R_matrix : np.ndarray
             Матрица размерности (M, n_classes), где элемент (i, c) равен
             max_s R(x_i, Y_{c, s}).
+
+        Notes
+        -----
+        R(x, Y) не масштабируется по k (числу столбцов Y) — базис большего
+        размера при прочих равных склонен давать больший R просто за счёт
+        того, что охватывает больше измерений признакового пространства.
+        Сравнение между классами честно только если все Y_{c,s} имеют
+        одинаковый k — это гарантируется по умолчанию (freeze_basis_at=2)
+        и явным равнением при freeze_basis_at="auto"/fit_from_subclass_bases
+        (equalize=True). Если подпространства собраны вручную с разным k
+        (например, fit_from_subclass_bases(..., equalize=False) на базисах
+        неравного размера), результат predict()/predict_r_matrix будет
+        смещён в пользу классов с более крупными подпространствами.
         """
         self._check_is_fitted()
         X_clean, _ = self._validate_data(X)

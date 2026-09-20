@@ -15,6 +15,11 @@ from subspace_conjugacy.preprocessing.centering import (
     shift_columns,
     shift_rows,
 )
+from subspace_conjugacy.preprocessing.binarization import (
+    binarize_directory,
+    otsu_binarize,
+    otsu_threshold,
+)
 from subspace_conjugacy.preprocessing.normalization import suppress_background
 from subspace_conjugacy.preprocessing.preprocessor import ImagePreprocessor
 from subspace_conjugacy.preprocessing.resize import (
@@ -271,6 +276,101 @@ class TestImagePreprocessor:
         assert len(resized_files) == 3
         for path in centered_paths:
             assert cv2.imread(str(path)).shape == (256, 256, 3)
+
+
+class TestOtsuBinarization:
+    """Otsu-бинаризация (статья, "Data Preprocessing", находка №4) — только
+    для этапа определения проекции, статья явно НЕ применяет её для
+    определения типа опухоли."""
+
+    @staticmethod
+    def _make_bimodal_image(size=64, low=20, high=220, noise=10):
+        rng = np.random.default_rng(0)
+        image = np.full((size, size), low, dtype=np.uint8)
+        image[20:40, 20:40] = high
+        noise_arr = rng.integers(-noise, noise + 1, size=image.shape)
+        return np.clip(image.astype(int) + noise_arr, 0, 255).astype(np.uint8)
+
+    def test_threshold_between_the_two_modes(self):
+        gray = self._make_bimodal_image()
+        t = otsu_threshold(gray)
+        assert 20 < t < 220
+
+    def test_binarize_produces_only_black_and_white(self):
+        gray = self._make_bimodal_image()
+        binarized = otsu_binarize(gray)
+        assert set(np.unique(binarized)) <= {0, 255}
+
+    def test_binarize_default_bright_is_white(self):
+        gray = self._make_bimodal_image()
+        binarized = otsu_binarize(gray)
+        assert binarized[30, 30] == 255  # яркая область -> белая
+        assert binarized[5, 5] == 0      # тёмный фон -> чёрный
+
+    def test_binarize_invert_flips_result(self):
+        gray = self._make_bimodal_image()
+        normal = otsu_binarize(gray)
+        inverted = otsu_binarize(gray, invert=True)
+        np.testing.assert_array_equal(inverted, 255 - normal)
+
+    def test_accepts_color_image(self):
+        gray = self._make_bimodal_image()
+        color = np.stack([gray, gray, gray], axis=-1)
+        binarized = otsu_binarize(color)
+        assert binarized.ndim == 2
+        assert binarized.shape == gray.shape
+
+    def test_rejects_1d_input(self):
+        with pytest.raises(ValueError):
+            otsu_binarize(np.zeros(64, dtype=np.uint8))
+
+
+class TestBinarizeDirectory:
+    def test_binarizes_all_matching_files(self, tmp_path):
+        input_dir = tmp_path / "centered"
+        output_dir = tmp_path / "binarized"
+        input_dir.mkdir()
+
+        for i in range(1, 4):
+            img = TestOtsuBinarization._make_bimodal_image()
+            cv2.imwrite(str(input_dir / f"glioma{i}.png"), img)
+
+        outputs = binarize_directory(input_dir, output_dir, pattern="glioma*.png")
+
+        assert len(outputs) == 3
+        for path in outputs:
+            loaded = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            assert set(np.unique(loaded)) <= {0, 255}
+
+    def test_output_filenames_match_input(self, tmp_path):
+        input_dir = tmp_path / "centered"
+        output_dir = tmp_path / "binarized"
+        input_dir.mkdir()
+        cv2.imwrite(
+            str(input_dir / "glioma7.png"), TestOtsuBinarization._make_bimodal_image()
+        )
+
+        outputs = binarize_directory(input_dir, output_dir)
+
+        assert outputs[0].name == "glioma7.png"
+
+    def test_empty_directory_raises(self, tmp_path):
+        input_dir = tmp_path / "empty"
+        input_dir.mkdir()
+        with pytest.raises(ValueError):
+            binarize_directory(input_dir, tmp_path / "out")
+
+    def test_creates_output_directory(self, tmp_path):
+        input_dir = tmp_path / "centered"
+        input_dir.mkdir()
+        cv2.imwrite(
+            str(input_dir / "a.png"), TestOtsuBinarization._make_bimodal_image()
+        )
+        output_dir = tmp_path / "nested" / "binarized"
+
+        binarize_directory(input_dir, output_dir)
+
+        assert output_dir.is_dir()
 
 
 @pytest.mark.notebook_parity

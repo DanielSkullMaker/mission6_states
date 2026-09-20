@@ -3,6 +3,19 @@
 Теория (секция 1.2-1.3 из refactoring_plan.txt):
   Этот модуль объединяет все этапы канонического алгоритма кластеризации:
 
+  ФАЗА 0 (опционально, по порядку — сначала качество, потом избыточность):
+    0a. LowInformativenessFilter (algorithms/informativeness_filter.py) —
+        статья, 3-й эксперимент: "images with the number of white pixels
+        less than 50% of the average... are cut off" (находка №5).
+    0b. LinearDependencyFilter (algorithms/reference_filter.py) — статья,
+        "Problem Definition": "almost linearly dependent vectors are
+        excluded" (находка №3).
+    Обе выключены по умолчанию (filter_low_informativeness=False,
+    filter_dependent=False) — обратная совместимость. Если включены обе,
+    0a применяется К ИСХОДНОМУ X, а 0b — к тому, что ОСТАЛОСЬ после 0a (не
+    наоборот: сначала отбрасываем заведомо плохие по качеству образы,
+    затем ищем дубликаты среди того, что осталось содержательным).
+
   ФАЗА A — Поиск центров кластеров:
     A.1: GlobalMinCosinePairFinder — глобальная пара с min косинусом
     A.2-A.3: ReferenceCenterBuilder — последовательное добавление центров через min R
@@ -17,7 +30,8 @@
   Объединяет NB4 (legacy), NB5, NB6, NB7 в единый in-memory pipeline.
 
 Связь с другими модулями:
-  - Использует algorithms/global_pair, reference_centers, subclass_seed, subclass_growth
+  - Использует algorithms/global_pair, reference_centers, subclass_seed,
+    subclass_growth, reference_filter (опционально)
   - Результат используется в SubspaceConjugacyClassifier (фаза C, NB8)
 """
 
@@ -27,7 +41,13 @@ from typing import List, Literal, Optional
 import numpy as np
 
 from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
+from subspace_conjugacy.algorithms.informativeness_filter import (
+    DEFAULT_BRIGHTNESS_THRESHOLD,
+    DEFAULT_MIN_FRACTION_OF_MEAN,
+    LowInformativenessFilter,
+)
 from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
+from subspace_conjugacy.algorithms.reference_filter import LinearDependencyFilter
 from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
 from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
 
@@ -56,6 +76,35 @@ class FursovClusterer:
           (см. algorithms/subclass_growth.py, docstring модуля)
     reg_param : float, default=1e-8
         Параметр регуляризации Тихонова для (Y^T Y)^{-1}.
+    filter_dependent : bool, default=False
+        Если True — перед фазой A.1 прогоняет LinearDependencyFilter
+        (algorithms/reference_filter.py) на входных векторах: почти линейно
+        зависимые (близкие дубликаты/комбинации уже принятых) векторы
+        исключаются из кластеризации и получают label -1 в self.labels_ —
+        это статья Korshikov & Fursov, "Problem Definition": "almost
+        linearly dependent vectors are excluded from the set of reference
+        vectors" (refactoring_plan.txt, раздел 10, находка №3). По
+        умолчанию выключено — обратная совместимость, поведение не меняется.
+    dependency_threshold : float, default=0.999
+        Порог показателя сопряжённости для LinearDependencyFilter (см. его
+        docstring). Используется только если filter_dependent=True.
+    filter_low_informativeness : bool, default=False
+        Если True — перед фильтром зависимости (и перед фазой A.1)
+        прогоняет LowInformativenessFilter
+        (algorithms/informativeness_filter.py): векторы с числом "белых"
+        (не фоновых) элементов меньше informativeness_min_fraction от
+        среднего по выборке исключаются — статья Korshikov & Fursov, 3-й
+        эксперимент: "images with the number of white pixels less than 50%
+        of the average... are cut off" (refactoring_plan.txt, раздел 10,
+        находка №5). По умолчанию выключено — обратная совместимость.
+    informativeness_threshold : float, default=10
+        Порог яркости "белого"/полезного элемента для LowInformativenessFilter
+        (см. его docstring). Используется только если
+        filter_low_informativeness=True.
+    informativeness_min_fraction : float, default=0.5
+        Минимальная допустимая доля от среднего числа "белых" элементов по
+        выборке (статья: 0.5 = 50%). Используется только если
+        filter_low_informativeness=True.
 
     Attributes
     ----------
@@ -63,11 +112,29 @@ class FursovClusterer:
         Финальные базисы подпространств (N, k) для каждого подкласса.
         Если freeze_basis_at задан, k = freeze_basis_at.
     labels_ : np.ndarray or None
-        Метки подклассов для каждого вектора (M,).
+        Метки подклассов для каждого вектора (M,) — ИНДЕКСАЦИЯ
+        соответствует исходному X, переданному в fit(). Векторы,
+        исключённые ЛЮБЫМ из включённых фильтров (informativeness и/или
+        dependency), получают label -1 (не участвуют ни в одном подпространстве).
     center_indices_ : np.ndarray or None
-        Индексы центров подклассов из фазы A.2-A.3.
+        Индексы центров подклассов из фазы A.2-A.3 (в исходном X).
     initial_pairs_ : np.ndarray or None
-        Начальные пары векторов (n_subclasses, 2) из фазы B.1.
+        Начальные пары векторов (n_subclasses, 2) из фазы B.1 (в исходном X).
+    kept_indices_ : np.ndarray or None
+        Индексы (в исходном X) векторов, реально участвовавших в
+        кластеризации. Совпадает с np.arange(M), если оба фильтра выключены.
+    excluded_indices_ : np.ndarray or None
+        Индексы (в исходном X) векторов, исключённых ЛЮБЫМ из фильтров
+        (объединение LowInformativenessFilter и LinearDependencyFilter, если
+        включены оба). Пустой массив, если оба фильтра выключены.
+    excluded_by_informativeness_ : np.ndarray or None
+        Индексы (в исходном X), исключённые именно LowInformativenessFilter
+        (подмножество excluded_indices_). Пустой массив, если
+        filter_low_informativeness=False.
+    excluded_by_dependency_ : np.ndarray or None
+        Индексы (в исходном X), исключённые именно LinearDependencyFilter
+        (подмножество excluded_indices_). Пустой массив, если
+        filter_dependent=False.
     n_subclasses_ : int or None
         Количество подклассов (равно n_subclasses).
     is_fitted_ : bool
@@ -97,6 +164,11 @@ class FursovClusterer:
         freeze_basis_at: Optional[int] = 2,
         growth_strategy: Literal["default", "master"] = "default",
         reg_param: float = 1e-8,
+        filter_dependent: bool = False,
+        dependency_threshold: float = 0.999,
+        filter_low_informativeness: bool = False,
+        informativeness_threshold: float = DEFAULT_BRIGHTNESS_THRESHOLD,
+        informativeness_min_fraction: float = DEFAULT_MIN_FRACTION_OF_MEAN,
     ) -> None:
         if n_subclasses < 2:
             raise ValueError(f"n_subclasses должен быть >= 2, получено {n_subclasses}")
@@ -111,24 +183,47 @@ class FursovClusterer:
                 f"growth_strategy должен быть 'default' или 'master', получено {growth_strategy}"
             )
 
+        if not (0.0 < dependency_threshold <= 1.0):
+            raise ValueError(
+                f"dependency_threshold должен быть в (0, 1], получено {dependency_threshold}"
+            )
+
+        if not (0.0 < informativeness_min_fraction <= 1.0):
+            raise ValueError(
+                f"informativeness_min_fraction должен быть в (0, 1], получено "
+                f"{informativeness_min_fraction}"
+            )
+
         self.n_subclasses = n_subclasses
         self.freeze_basis_at = freeze_basis_at
         self.growth_strategy = growth_strategy
         self.reg_param = reg_param
+        self.filter_dependent = filter_dependent
+        self.dependency_threshold = dependency_threshold
+        self.filter_low_informativeness = filter_low_informativeness
+        self.informativeness_threshold = informativeness_threshold
+        self.informativeness_min_fraction = informativeness_min_fraction
 
         # Результаты fit()
         self.subspaces_: Optional[List[np.ndarray]] = None
         self.labels_: Optional[np.ndarray] = None
         self.center_indices_: Optional[np.ndarray] = None
         self.initial_pairs_: Optional[np.ndarray] = None
+        self.kept_indices_: Optional[np.ndarray] = None
+        self.excluded_indices_: Optional[np.ndarray] = None
+        self.excluded_by_informativeness_: Optional[np.ndarray] = None
+        self.excluded_by_dependency_: Optional[np.ndarray] = None
         self.n_subclasses_: Optional[int] = None
         self.is_fitted_: bool = False
 
         # Внутренние компоненты (для отладки/анализа)
+        self._informativeness_filter: Optional[LowInformativenessFilter] = None
+        self._dependency_filter: Optional[LinearDependencyFilter] = None
         self._pair_finder: Optional[GlobalMinCosinePairFinder] = None
         self._center_builder: Optional[ReferenceCenterBuilder] = None
         self._seed_attacher: Optional[CosineSecondVectorAttacher] = None
         self._cluster_growth: Optional[ConjugacyClusterGrowth] = None
+        self._initial_pair: Optional[tuple] = None
 
     def fit(self, X: np.ndarray) -> "FursovClusterer":
         """Выполняет полный канонический алгоритм кластеризации A.1→A.3→B.1→B.2.
@@ -152,16 +247,83 @@ class FursovClusterer:
         fit_start = time.perf_counter()
         logger.info(
             "FursovClusterer.fit: старт, %d векторов, N=%d, n_subclasses=%d, "
-            "freeze_basis_at=%s, growth_strategy=%s.",
+            "freeze_basis_at=%s, growth_strategy=%s, filter_low_informativeness=%s, "
+            "filter_dependent=%s.",
             X_arr.shape[0], X_arr.shape[1], self.n_subclasses,
             self.freeze_basis_at, self.growth_strategy,
+            self.filter_low_informativeness, self.filter_dependent,
         )
+
+        # ФАЗА 0a (опционально): фильтр малоинформативных векторов (статья,
+        # 3-й эксперимент) — применяется К ИСХОДНОМУ X, до фильтра зависимости.
+        if self.filter_low_informativeness:
+            phase_start = time.perf_counter()
+            self._informativeness_filter = LowInformativenessFilter(
+                brightness_threshold=self.informativeness_threshold,
+                min_fraction_of_mean=self.informativeness_min_fraction,
+            )
+            self._informativeness_filter.fit(X_arr)
+            kept_idx = self._informativeness_filter.kept_indices_
+            excluded_by_informativeness = self._informativeness_filter.excluded_indices_
+            logger.debug(
+                "FursovClusterer.fit: фильтр малоинформативности занял %.3fs, "
+                "исключено %d/%d.", time.perf_counter() - phase_start,
+                len(excluded_by_informativeness), X_arr.shape[0],
+            )
+        else:
+            self._informativeness_filter = None
+            kept_idx = np.arange(X_arr.shape[0])
+            excluded_by_informativeness = np.array([], dtype=int)
+
+        # ФАЗА 0b (опционально): фильтр почти линейно зависимых векторов
+        # (Korshikov & Fursov, "Problem Definition") — применяется к тому,
+        # что ОСТАЛОСЬ после 0a (kept_idx — уже в пространстве индексов
+        # исходного X_arr, поэтому X_arr[kept_idx] корректно даже если 0a
+        # была выключена, когда kept_idx = arange(M)).
+        if self.filter_dependent:
+            phase_start = time.perf_counter()
+            self._dependency_filter = LinearDependencyFilter(
+                threshold=self.dependency_threshold,
+                reg_param=self.reg_param,
+            )
+            self._dependency_filter.fit(X_arr[kept_idx])
+            kept_idx_local = self._dependency_filter.kept_indices_
+            excluded_by_dependency = kept_idx[self._dependency_filter.excluded_indices_]
+            kept_idx = kept_idx[kept_idx_local]
+            logger.debug(
+                "FursovClusterer.fit: фильтр зависимости занял %.3fs, "
+                "исключено %d/%d (среди оставшихся после 0a).",
+                time.perf_counter() - phase_start,
+                len(excluded_by_dependency), X_arr.shape[0] - len(excluded_by_informativeness),
+            )
+        else:
+            self._dependency_filter = None
+            excluded_by_dependency = np.array([], dtype=int)
+
+        excluded_idx = np.union1d(excluded_by_informativeness, excluded_by_dependency)
+        X_for_clustering = X_arr[kept_idx]
+
+        min_required = self.n_subclasses * 2
+        if X_for_clustering.shape[0] < min_required:
+            logger.error(
+                "FursovClusterer.fit: после фильтрации осталось %d векторов "
+                "(было %d) < %d требуемых.", X_for_clustering.shape[0],
+                X_arr.shape[0], min_required,
+            )
+            raise ValueError(
+                f"После фильтрации осталось {X_for_clustering.shape[0]} векторов "
+                f"(было {X_arr.shape[0]}), а требуется минимум {min_required} "
+                f"для {self.n_subclasses} подклассов. Ослабьте фильтры "
+                f"(informativeness_min_fraction ближе к 0, dependency_threshold "
+                f"ближе к 1.0) или отключите filter_low_informativeness/"
+                f"filter_dependent."
+            )
 
         # ФАЗА A.1: Глобальная пара с минимальным косинусом
         phase_start = time.perf_counter()
         self._pair_finder = GlobalMinCosinePairFinder()
-        self._pair_finder.fit(X_arr)
-        initial_pair = self._pair_finder.pair_indices_
+        self._pair_finder.fit(X_for_clustering)
+        initial_pair_local = self._pair_finder.pair_indices_
         logger.debug("FursovClusterer.fit: A.1 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # ФАЗА A.2-A.3: Последовательное добавление центров через min R
@@ -170,15 +332,15 @@ class FursovClusterer:
             n_subclasses=self.n_subclasses,
             reg_param=self.reg_param,
         )
-        self._center_builder.fit(X_arr, initial_pair)
-        center_indices = self._center_builder.center_indices_
+        self._center_builder.fit(X_for_clustering, initial_pair_local)
+        center_indices_local = self._center_builder.center_indices_
         logger.debug("FursovClusterer.fit: A.2-A.3 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # ФАЗА B.1: Второй вектор для каждого центра через min cos
         phase_start = time.perf_counter()
         self._seed_attacher = CosineSecondVectorAttacher()
-        self._seed_attacher.fit(X_arr, center_indices)
-        pairs = self._seed_attacher.pairs_
+        self._seed_attacher.fit(X_for_clustering, center_indices_local)
+        pairs_local = self._seed_attacher.pairs_
         logger.debug("FursovClusterer.fit: B.1 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # ФАЗА B.2: Последовательное наполнение кластеров через max R
@@ -188,20 +350,36 @@ class FursovClusterer:
             strategy=self.growth_strategy,
             reg_param=self.reg_param,
         )
-        self._cluster_growth.fit(X_arr, pairs)
+        self._cluster_growth.fit(X_for_clustering, pairs_local)
         logger.debug("FursovClusterer.fit: B.2 заняла %.3fs.", time.perf_counter() - phase_start)
 
-        # Сохраняем результаты
+        # Сохраняем результаты, переводя индексы из локального пространства
+        # X_for_clustering обратно в индексы исходного X (kept_idx[local]) —
+        # если фильтр не применялся, kept_idx = arange(M) и это тождественно.
         self.subspaces_ = self._cluster_growth.subspace_bases_
-        self.labels_ = self._cluster_growth.labels_
-        self.center_indices_ = center_indices
-        self.initial_pairs_ = pairs
+        full_labels = np.full(X_arr.shape[0], -1, dtype=int)
+        full_labels[kept_idx] = self._cluster_growth.labels_
+        self.labels_ = full_labels
+        self.center_indices_ = kept_idx[center_indices_local]
+        self.initial_pairs_ = kept_idx[pairs_local]
+        self._initial_pair = (
+            int(kept_idx[initial_pair_local[0]]),
+            int(kept_idx[initial_pair_local[1]]),
+        )
+        self.kept_indices_ = kept_idx
+        self.excluded_indices_ = excluded_idx
+        self.excluded_by_informativeness_ = excluded_by_informativeness
+        self.excluded_by_dependency_ = excluded_by_dependency
         self.n_subclasses_ = self.n_subclasses
         self.is_fitted_ = True
 
         logger.info(
-            "FursovClusterer.fit: готово за %.3fs, размеры подклассов=%s.",
+            "FursovClusterer.fit: готово за %.3fs, размеры подклассов=%s "
+            "(исключено всего: %d; малоинформативных: %d; почти линейно "
+            "зависимых: %d).",
             time.perf_counter() - fit_start, self.get_subclass_sizes().tolist(),
+            len(excluded_idx), len(excluded_by_informativeness),
+            len(excluded_by_dependency),
         )
 
         return self
@@ -266,7 +444,10 @@ class FursovClusterer:
         Returns
         -------
         pair : tuple[int, int]
-            Индексы двух векторов с минимальным косинусом.
+            Индексы двух векторов с минимальным косинусом, в индексном
+            пространстве исходного X, переданного в fit() (даже если
+            filter_dependent=True и A.1 фактически считалась на
+            отфильтрованном подмножестве).
 
         Raises
         ------
@@ -274,7 +455,7 @@ class FursovClusterer:
             Если fit() ещё не был вызван.
         """
         self._check_is_fitted()
-        return self._pair_finder.pair_indices_
+        return self._initial_pair
 
     def get_center_indices(self) -> np.ndarray:
         """Возвращает индексы центров подклассов из фазы A.2-A.3.

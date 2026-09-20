@@ -1,5 +1,11 @@
-"""Preprocessing package: resize, background suppression, centering (NB1-NB2)."""
+"""Preprocessing package: resize, background suppression, centering (NB1-NB2),
+Otsu-бинаризация для этапа определения проекции (статья, находка №4)."""
 
+from subspace_conjugacy.preprocessing.binarization import (
+    binarize_directory,
+    otsu_binarize,
+    otsu_threshold,
+)
 from subspace_conjugacy.preprocessing.centering import (
     center_directory,
     center_image,
@@ -28,4 +34,7 @@ __all__ = [
     "compute_vertical_delta",
     "shift_rows",
     "shift_columns",
+    "otsu_threshold",
+    "otsu_binarize",
+    "binarize_directory",
 ]

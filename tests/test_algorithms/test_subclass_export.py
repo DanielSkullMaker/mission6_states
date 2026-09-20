@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from subspace_conjugacy.algorithms.subclass_export import (
+    equalize_subspace_bases,
     flatten_subspace_bases,
     unflatten_subspace_bases,
     export_clusterer_bases,
@@ -288,6 +289,71 @@ class TestIntegrationWithFursovClusterer:
             for Y in bases_list:
                 R = conjugate_criterion(x_test, Y)
                 assert 0.0 <= R <= 1.0
+
+
+@pytest.mark.theory
+class TestEqualizeSubspaceBases:
+    """Реализация рецепта статьи Korshikov & Fursov: "only the first n
+    elements corresponding to the number of vectors of the smallest space
+    are taken for each vector" — усечение подпространств до общего
+    минимального k (refactoring_plan.txt, раздел 10, находка №2)."""
+
+    def test_truncates_to_global_minimum(self):
+        rng = np.random.default_rng(0)
+        bases = {
+            "a": [rng.standard_normal((16, 5)), rng.standard_normal((16, 3))],
+            "b": [rng.standard_normal((16, 7))],
+        }
+
+        equalized, min_size = equalize_subspace_bases(bases)
+
+        assert min_size == 3
+        assert [Y.shape[1] for Y in equalized["a"]] == [3, 3]
+        assert [Y.shape[1] for Y in equalized["b"]] == [3]
+
+    def test_truncation_keeps_first_columns(self):
+        """"Первые n элементов" — буквально первые n столбцов, не случайные
+        и не последние (важно: freeze_basis_at=int делает то же самое
+        Y[:, :k], так что равнение через "auto" воспроизводит одинаковую
+        семантику усечения, а не другую)."""
+        Y = np.arange(20).reshape(4, 5).astype(float)  # (N=4, k=5)
+        bases = {"a": [Y], "b": [np.zeros((4, 3))]}
+
+        equalized, min_size = equalize_subspace_bases(bases)
+
+        assert min_size == 3
+        np.testing.assert_array_equal(equalized["a"][0], Y[:, :3])
+
+    def test_does_not_mutate_input(self):
+        rng = np.random.default_rng(1)
+        original = rng.standard_normal((8, 4))
+        bases = {"a": [original]}
+
+        equalize_subspace_bases(bases)
+
+        assert original.shape == (8, 4)  # исходный массив не усечён на месте
+
+    def test_no_op_when_all_sizes_already_equal(self):
+        rng = np.random.default_rng(2)
+        bases = {
+            "a": [rng.standard_normal((8, 2)), rng.standard_normal((8, 2))],
+            "b": [rng.standard_normal((8, 2))],
+        }
+
+        equalized, min_size = equalize_subspace_bases(bases)
+
+        assert min_size == 2
+        for cls in bases:
+            for Y_orig, Y_eq in zip(bases[cls], equalized[cls]):
+                np.testing.assert_array_equal(Y_orig, Y_eq)
+
+    def test_empty_dict_raises(self):
+        with pytest.raises(ValueError):
+            equalize_subspace_bases({})
+
+    def test_class_without_subspaces_raises(self):
+        with pytest.raises(ValueError):
+            equalize_subspace_bases({"a": [np.zeros((8, 2))], "b": []})
 
 
 if __name__ == "__main__":

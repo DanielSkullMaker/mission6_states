@@ -44,9 +44,9 @@ def small_config(tmp_path) -> DatasetConfig:
 class TestStageRegistry:
     def test_all_planned_stages_registered(self):
         expected = {
-            "resize", "center", "vectorize", "global_pair", "reference_centers",
-            "subclass_seed", "subclass_growth", "cluster", "export_subspaces",
-            "classify", "legacy_notebook",
+            "resize", "center", "binarize", "vectorize", "global_pair",
+            "reference_centers", "subclass_seed", "subclass_growth", "cluster",
+            "export_subspaces", "classify", "legacy_notebook",
         }
         assert expected == set(STAGE_REGISTRY.keys())
 
@@ -104,6 +104,28 @@ class TestRunStageDispatch:
             np.testing.assert_array_equal(Y_stage, Y_ref)
 
 
+class TestRunStageBinarize:
+    """stage "binarize" — Otsu-бинаризация (статья, находка №4), только для
+    этапа определения проекции, не для обычной классификации типа опухоли."""
+
+    def test_binarizes_centered_images(self, small_config):
+        pipeline = FursovPipeline(small_config)
+        outputs = pipeline.run_stage("binarize", class_name="glioma")
+
+        assert len(outputs) == 20  # small_config пишет 20 изображений/класс
+        for path in outputs:
+            img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            assert set(np.unique(img)) <= {0, 255}
+
+    def test_writes_to_binarized_path_from_config(self, small_config):
+        pipeline = FursovPipeline(small_config)
+        pipeline.run_stage("binarize", class_name="glioma")
+
+        binarized_dir = small_config.paths["glioma"]["binarized"]
+        assert binarized_dir.is_dir()
+        assert len(list(binarized_dir.glob("*.png"))) == 20
+
+
 class TestRunClass:
     def test_run_class_populates_clusterers_and_exports_csv(self, small_config):
         pipeline = FursovPipeline(small_config)
@@ -146,6 +168,37 @@ class TestRunAllClasses:
         for cls in small_config.classes:
             assert len(pipeline.clusterers_[cls].subspaces_) == 4
 
+    def test_n_subclasses_none_falls_back_to_config_default(self, small_config):
+        """small_config.n_subclasses=4 (см. fixture) должен использоваться,
+        если run_all_classes() вызван без n_subclasses вовсе."""
+        pipeline = FursovPipeline(small_config)
+        pipeline.run_all_classes(freeze_basis_at=2)
+
+        for cls in small_config.classes:
+            assert len(pipeline.clusterers_[cls].subspaces_) == small_config.n_subclasses
+
+    def test_dict_n_subclasses_trains_each_class_independently(self, small_config):
+        per_class = {"glioma": 2, "meningioma": 3, "pituitary": 4}
+        pipeline = FursovPipeline(small_config)
+        result = pipeline.run_all_classes(n_subclasses=per_class, freeze_basis_at=2)
+
+        for cls, expected in per_class.items():
+            assert len(result[cls].subspaces_) == expected
+
+    def test_dict_n_subclasses_missing_class_raises(self, small_config):
+        pipeline = FursovPipeline(small_config)
+        with pytest.raises(ValueError, match="pituitary"):
+            pipeline.run_all_classes(n_subclasses={"glioma": 2, "meningioma": 3})
+
+    def test_build_classifier_after_dict_n_subclasses(self, small_config):
+        per_class = {"glioma": 2, "meningioma": 3, "pituitary": 4}
+        pipeline = FursovPipeline(small_config)
+        pipeline.run_all_classes(n_subclasses=per_class, freeze_basis_at=2)
+
+        classifier = pipeline.build_classifier()
+
+        assert classifier.n_subclasses_by_class_ == per_class
+
 
 class TestBuildClassifier:
     def test_raises_without_trained_classes(self, small_config):
@@ -162,6 +215,34 @@ class TestBuildClassifier:
         assert pipeline.classifier_ is classifier
         assert set(classifier.classes_) == set(small_config.classes)
         assert classifier.is_fitted_
+
+    def test_equalize_true_after_unbounded_growth(self, small_config):
+        """run_all_classes(freeze_basis_at=None) растит подпространства
+        каждого класса независимо до естественного размера; без equalize
+        размеры между классами могут отличаться — build_classifier(equalize=True)
+        должен привести их к общему минимуму (находка №2, статья Korshikov
+        & Fursov: R(x,Y) сопоставим между классами только при равном k)."""
+        pipeline = FursovPipeline(small_config)
+        # export=False: stage_export_subspaces пишет CSV в формате NB6-7,
+        # который требует ровно 2 вектора на подкласс — здесь мы намеренно
+        # растим без ограничения (freeze_basis_at=None), экспорт не нужен.
+        pipeline.run_all_classes(n_subclasses=4, freeze_basis_at=None, export=False)
+
+        classifier = pipeline.build_classifier(equalize=True)
+
+        all_sizes = {
+            Y.shape[1] for bases in classifier.subspaces_.values() for Y in bases
+        }
+        assert len(all_sizes) == 1
+        assert classifier.equalized_basis_size_ == next(iter(all_sizes))
+
+    def test_equalize_false_keeps_natural_unequal_sizes(self, small_config):
+        pipeline = FursovPipeline(small_config)
+        pipeline.run_all_classes(n_subclasses=4, freeze_basis_at=None, export=False)
+
+        classifier = pipeline.build_classifier(equalize=False)
+
+        assert classifier.equalized_basis_size_ is None
 
 
 class TestClassifyTest:

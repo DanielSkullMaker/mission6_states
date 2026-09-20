@@ -8,6 +8,7 @@
 |-------------------|---------|---------------------------|---------|
 | resize            | —       | preprocessing.resize      | NB1     |
 | center            | —       | preprocessing.centering   | NB2     |
+| binarize          | —       | preprocessing.binarization| статья, находка №4 |
 | vectorize         | вход X  | features                  | NB3     |
 | global_pair       | A.1     | algorithms.global_pair    | —       |
 | reference_centers | A.2-A.3 | algorithms.reference_centers | NB5  |
@@ -64,6 +65,33 @@ def stage_center(
         config.paths[class_name]["centered"],
         background_threshold=background_threshold,
         min_shift=min_shift,
+        pattern=f"{class_name}*.png",
+    )
+
+
+def stage_binarize(
+    config: "DatasetConfig",
+    class_name: str,
+    invert: bool = False,
+) -> List[Path]:
+    """Статья, "Data Preprocessing": config.paths[class_name]["centered"] ->
+    ["binarized"] методом Отсу.
+
+    ⚠ Только для этапа определения проекции (axial/sagittal/coronal) —
+    статья явно отмечает, что для определения типа опухоли внутри уже
+    известной проекции бинаризация НЕ применяется (refactoring_plan.txt,
+    раздел 10, находка №4). Обычный pipeline run_class()/run_all_classes()
+    эту стадию не вызывает — она нужна только когда собирается отдельный
+    SubspaceConjugacyClassifier для проекции, как этап 1 в
+    models.sequential_classifier.SequentialClassifier.
+    """
+    from subspace_conjugacy.preprocessing.binarization import binarize_directory
+
+    logger.info("stage_binarize: класс='%s'.", class_name)
+    return binarize_directory(
+        config.paths[class_name]["centered"],
+        config.paths[class_name]["binarized"],
+        invert=invert,
         pattern=f"{class_name}*.png",
     )
 
@@ -253,6 +281,7 @@ def stage_legacy_notebook(
 STAGE_REGISTRY: Dict[str, Callable[..., Any]] = {
     "resize": stage_resize,
     "center": stage_center,
+    "binarize": stage_binarize,
     "vectorize": stage_vectorize,
     "global_pair": stage_global_pair,
     "reference_centers": stage_reference_centers,

@@ -40,12 +40,20 @@ from subspace_conjugacy.core.metrics import (
 # Models
 from subspace_conjugacy.models.base import BaseSubspaceEstimator
 from subspace_conjugacy.models.classifier import SubspaceConjugacyClassifier
+from subspace_conjugacy.models.sequential_classifier import SequentialClassifier
 
 # Canonical algorithms (фасад A+B)
 from subspace_conjugacy.algorithms.fursov_clusterer import (
     FursovClusterer,
     SubspaceClusterer,  # Alias для обратной совместимости
 )
+from subspace_conjugacy.algorithms.reference_filter import LinearDependencyFilter
+from subspace_conjugacy.algorithms.informativeness_filter import (
+    DEFAULT_BRIGHTNESS_THRESHOLD,
+    DEFAULT_MIN_FRACTION_OF_MEAN,
+    LowInformativenessFilter,
+)
+from subspace_conjugacy.algorithms.subclass_export import equalize_subspace_bases
 
 # Pipeline orchestrator (Фаза 6)
 from subspace_conjugacy.pipeline import FursovPipeline
@@ -57,6 +65,9 @@ from subspace_conjugacy.preprocessing import (
     resize_image,
     suppress_background,
 )
+
+# Otsu-бинаризация (статья, этап определения проекции, находка №4)
+from subspace_conjugacy.preprocessing.binarization import otsu_binarize, otsu_threshold
 
 # Feature extraction
 from subspace_conjugacy.features.vectorization import (
@@ -114,6 +125,16 @@ from subspace_conjugacy.utils.validation import (
     check_is_fitted,
 )
 
+# Hyperparameter search (grid search / random search)
+from subspace_conjugacy.model_selection import (
+    DEFAULT_PARAM_DISTRIBUTIONS,
+    DEFAULT_PARAM_GRID,
+    grid_search_classifier,
+    random_search_classifier,
+    search_hyperparameters,
+    summarize_search_results,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -126,9 +147,15 @@ __all__ = [
     # Models
     "BaseSubspaceEstimator",
     "SubspaceConjugacyClassifier",
+    "SequentialClassifier",
     # Canonical algorithms
     "FursovClusterer",
     "SubspaceClusterer",  # Alias
+    "LinearDependencyFilter",
+    "LowInformativenessFilter",
+    "DEFAULT_BRIGHTNESS_THRESHOLD",
+    "DEFAULT_MIN_FRACTION_OF_MEAN",
+    "equalize_subspace_bases",
     # Pipeline orchestrator
     "FursovPipeline",
     # Preprocessing
@@ -136,6 +163,8 @@ __all__ = [
     "resize_image",
     "suppress_background",
     "center_image",
+    "otsu_threshold",
+    "otsu_binarize",
     # Feature extraction
     "vectorize_image",
     "vectorize_batch",
@@ -177,4 +206,11 @@ __all__ = [
     "check_basis_matrix",
     "check_hyperparameters",
     "check_is_fitted",
+    # Hyperparameter search
+    "DEFAULT_PARAM_GRID",
+    "DEFAULT_PARAM_DISTRIBUTIONS",
+    "grid_search_classifier",
+    "random_search_classifier",
+    "search_hyperparameters",
+    "summarize_search_results",
 ]

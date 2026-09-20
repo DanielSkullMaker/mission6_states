@@ -17,7 +17,7 @@
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,92 @@ def unflatten_subspace_bases(
         flattened.shape, n_subclasses, n_features, basis_size,
     )
     return subspaces
+
+
+def equalize_subspace_bases(
+    subspaces_by_class: Dict[Any, List[np.ndarray]],
+) -> Tuple[Dict[Any, List[np.ndarray]], int]:
+    """Усекает базисы ВСЕХ подклассов ВСЕХ классов до общего минимального k.
+
+    Реализует буквальный рецепт статьи Korshikov & Fursov ("Description of
+    the Clustering Method", theory/VI_Korshikov_VA_Fursov_..._Conjugacy.docx):
+    "Since the correct operation of the algorithm requires that subspaces
+    contain the same number of vectors, when the number of vectors in
+    subspaces of different classes differs, only the first n elements
+    corresponding to the number of vectors of the smallest space are taken
+    for each vector." Без этого шага R(x, Y) для подпространств разного
+    размера k несопоставимы напрямую — базис с большим k при прочих равных
+    склонен давать больший R просто за счёт того, что охватывает больше
+    измерений признакового пространства, а не за счёт реальной
+    сопряжённости с классом.
+
+    Типичный сценарий использования: подпространства получены через
+    ConjugacyClusterGrowth(freeze_basis_at=None) — жадный рост без
+    ограничения размера, из-за чего разные подклассы (и тем более разные
+    классы) естественно вырастают до разных k. Этот шаг — единственный
+    способ сравнить их между собой "по-честному" без искусственной
+    заморозки размера заранее (freeze_basis_at=int), которая отбрасывает
+    результат роста (см. SubspaceConjugacyClassifier, freeze_basis_at="auto",
+    и refactoring_plan.txt, раздел 10, находка №2).
+
+    Parameters
+    ----------
+    subspaces_by_class : Dict[Any, List[np.ndarray]]
+        {class_label: [Y_0, Y_1, ...]}, где каждый Y_s — базисная матрица
+        подкласса (N, k_s); k_s могут отличаться и между подклассами внутри
+        одного класса, и между классами.
+
+    Returns
+    -------
+    equalized : Dict[Any, List[np.ndarray]]
+        Новый словарь той же формы, каждый базис усечён до Y[:, :min_size]
+        (исходный subspaces_by_class не модифицируется).
+    min_size : int
+        Итоговый общий размер базиса — минимум среди ВСЕХ входных Y.shape[1].
+
+    Raises
+    ------
+    ValueError
+        Если subspaces_by_class пуст, или хотя бы один класс не содержит
+        подпространств.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> bases = {
+    ...     "a": [np.random.randn(16, 5), np.random.randn(16, 3)],
+    ...     "b": [np.random.randn(16, 7)],
+    ... }
+    >>> equalized, k = equalize_subspace_bases(bases)
+    >>> k
+    3
+    >>> [Y.shape[1] for Y in equalized["a"]]
+    [3, 3]
+    """
+    if not subspaces_by_class:
+        logger.error("equalize_subspace_bases: subspaces_by_class пуст.")
+        raise ValueError("subspaces_by_class пуст.")
+
+    all_sizes: List[int] = []
+    for cls, bases in subspaces_by_class.items():
+        if not bases:
+            logger.error("equalize_subspace_bases: класс '%s' без подпространств.", cls)
+            raise ValueError(f"Класс '{cls}' не содержит подпространств.")
+        all_sizes.extend(Y.shape[1] for Y in bases)
+
+    min_size = min(all_sizes)
+    max_size = max(all_sizes)
+    logger.info(
+        "equalize_subspace_bases: усечение до k=%d (наблюдаемый диапазон роста "
+        "[%d, %d] среди %d классов).",
+        min_size, min_size, max_size, len(subspaces_by_class),
+    )
+
+    equalized = {
+        cls: [Y[:, :min_size] for Y in bases]
+        for cls, bases in subspaces_by_class.items()
+    }
+    return equalized, min_size
 
 
 def export_clusterer_bases(

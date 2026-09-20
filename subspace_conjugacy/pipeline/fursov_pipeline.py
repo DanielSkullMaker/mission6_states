@@ -14,7 +14,7 @@ SubspaceConjugacyClassifier из обученных clusterers_, ``classify_test
 
 import inspect
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 import numpy as np
 
@@ -191,30 +191,81 @@ class FursovPipeline:
         logger.info("FursovPipeline.run_class: класс='%s' готов.", class_name)
         return clusterer
 
-    def run_all_classes(self, **kwargs: Any) -> Dict[str, Any]:
+    def run_all_classes(
+        self,
+        n_subclasses: Optional[Union[int, Mapping[str, int]]] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         """Вызывает run_class() для каждого класса из self.config.classes.
 
         Parameters
         ----------
+        n_subclasses : int or Mapping[str, int], optional
+            Число подклассов. Целое (или None — тогда используется
+            self.config.n_subclasses, как раньше) применяется одинаково ко
+            всем классам. Словарь {class_name: int} задаёт число подклассов
+            независимо для каждого класса (см. SubspaceConjugacyClassifier —
+            статья Korshikov & Fursov отмечает, что оптимальное число
+            подклассов обычно различается между классами патологий) —
+            должен содержать ключ для каждого self.config.classes.
         **kwargs
-            Прокидываются в run_class() (n_subclasses, freeze_basis_at, ...).
+            Прокидываются в run_class() (freeze_basis_at, growth_strategy, ...).
 
         Returns
         -------
         clusterers : Dict[str, FursovClusterer]
             То же, что и self.clusterers_, после обучения всех классов.
+
+        Raises
+        ------
+        ValueError
+            Если n_subclasses — словарь без значения для одного из классов.
         """
-        logger.info("FursovPipeline.run_all_classes: %d классов -> %s.", len(self.config.classes), self.config.classes)
+        if isinstance(n_subclasses, Mapping):
+            missing = [c for c in self.config.classes if c not in n_subclasses]
+            if missing:
+                logger.error(
+                    "FursovPipeline.run_all_classes: n_subclasses не содержит "
+                    "значения для классов %s.", missing,
+                )
+                raise ValueError(
+                    f"n_subclasses задан словарём, но не содержит значения для "
+                    f"классов: {missing}."
+                )
+            per_class_n_subclasses = {c: n_subclasses[c] for c in self.config.classes}
+        else:
+            per_class_n_subclasses = {c: n_subclasses for c in self.config.classes}
+
+        logger.info(
+            "FursovPipeline.run_all_classes: %d классов -> %s, n_subclasses=%s.",
+            len(self.config.classes), self.config.classes, per_class_n_subclasses,
+        )
         for class_name in self.config.classes:
-            self.run_class(class_name, **kwargs)
+            self.run_class(class_name, n_subclasses=per_class_n_subclasses[class_name], **kwargs)
         logger.info("FursovPipeline.run_all_classes: все классы обучены.")
         return self.clusterers_
 
-    def build_classifier(self) -> Any:
+    def build_classifier(self, equalize: bool = False) -> Any:
         """Собирает SubspaceConjugacyClassifier из self.clusterers_.
 
         Требует, чтобы run_class()/run_all_classes() уже были вызваны для
         всех классов, базисы которых нужно включить в классификатор.
+
+        Parameters
+        ----------
+        equalize : bool, default=False
+            Если True — усекает базисы всех классов до общего минимального
+            фактически достигнутого k перед сборкой классификатора
+            (SubspaceConjugacyClassifier.fit_from_subclass_bases(equalize=True),
+            algorithms.subclass_export.equalize_subspace_bases). Осмысленно,
+            если run_class()/run_all_classes() были вызваны с
+            freeze_basis_at=None (полный рост без ограничения) — тогда
+            подпространства разных классов естественно вырастают до разных
+            k, и без equalize=True R(x, Y) между ними не сопоставим честно
+            (см. refactoring_plan.txt, раздел 10, находка №2). Если базисы
+            уже одного размера (обычный freeze_basis_at=int в run_class()),
+            equalize=True не меняет ничего, кроме установки
+            classifier.equalized_basis_size_.
 
         Returns
         -------
@@ -246,11 +297,12 @@ class FursovPipeline:
             freeze_basis_at=reference.freeze_basis_at or 2,
             reg_param=reference.reg_param,
         )
-        classifier.fit_from_subclass_bases(subspaces_by_class)
+        classifier.fit_from_subclass_bases(subspaces_by_class, equalize=equalize)
         self.classifier_ = classifier
         logger.info(
-            "FursovPipeline.build_classifier: собран из %d классов.",
-            len(subspaces_by_class),
+            "FursovPipeline.build_classifier: собран из %d классов (equalize=%s%s).",
+            len(subspaces_by_class), equalize,
+            f", k={classifier.equalized_basis_size_}" if equalize else "",
         )
         return classifier
 
