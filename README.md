@@ -145,7 +145,24 @@ confidence = clf.predict_confidence_ratio(X[:5])   # NB8: best_R/mean(others)-1
 ```
 
 Готовый end-to-end скрипт с train/test split, отчётом и сохранением модели —
-[`main.py`](main.py).
+[`main.py`](main.py). Скрипт содержит два независимых эксперимента, выбираемых
+через `--experiment`:
+
+```bash
+python main.py                              # = --experiment article (по умолчанию)
+python main.py --experiment article         # эксперименты 2-3 опубликованной статьи (Kaggle archive/)
+python main.py --experiment draft-method    # метод из черновика vs классический ML vs CNN (datasets/*_centered/)
+```
+
+`--experiment draft-method` сравнивает на `datasets/{class}_centered/`:
+расширенную сетку конфигураций `SubspaceConjugacyClassifier` (baseline,
+отдельные фильтры статьи, метод из черновика `theory/Макет новой статьи.docx`
+в разных комбинациях, перебор `n_subclasses`), классические ML-модели sklearn
+(логрегрессия/линейный SVM/random forest/kNN поверх PCA) и несколько
+намеренно упрощённых CNN (PyTorch). Требует `pip install torch` (extras
+`cnn-experiment` в `pyproject.toml`, не входит в основные зависимости
+библиотеки). Подробности и обоснование решений — docstring `main.py` и
+`refactoring_plan.txt`, раздел 11.
 
 ### Кластеризация одного класса (канонический алгоритм A+B напрямую)
 
@@ -230,6 +247,30 @@ clf.excluded_indices_by_class_  # {class_label: индексы X, исключё
 (сначала `filter_low_informativeness`, затем `filter_dependent` — среди
 выживших). По умолчанию оба выключены.
 
+### Разбиение на похожие пары — метод из черновика (theory/Макет новой статьи.docx)
+
+```python
+from subspace_conjugacy import SubspaceConjugacyClassifier
+
+clf = SubspaceConjugacyClassifier(
+    n_subclasses=8,
+    split_correlated_pairs=True,     # разбить эталонные векторы класса на пары похожих
+    correlated_pairs_subset="a",     # какое из двух подмножеств использовать ("a" или "b")
+)
+clf.fit(X, y)
+```
+
+⚠ В отличие от `filter_dependent`/`filter_low_informativeness` (сверены с
+**опубликованной** статьёй, раздел "Сверка с опубликованной статьёй"), этот
+метод взят из **черновика другой, неопубликованной** статьи (про КТ грудной
+клетки) — `theory/Макет новой статьи.docx`, "Первый этап": итеративно ищет
+пары наиболее похожих (по косинусному сходству) векторов и делит каждую пару
+между двумя подмножествами; для кластеризации берётся только одно из них.
+Применяется как фаза 0c — после `filter_low_informativeness`/`filter_dependent`,
+перед фазой A.1. Подробности и принятые решения по неоднозначностям
+черновика — `algorithms/correlated_pair_splitter.py` (docstring) и
+`refactoring_plan.txt`, раздел 11. По умолчанию выключено.
+
 ### Поиск гиперпараметров (grid search / random search)
 
 ```python
@@ -295,6 +336,7 @@ subspace_conjugacy/
 │   ├── reference_centers.py      # A.2-A.3 — ReferenceCenterBuilder
 │   ├── reference_filter.py       # Фаза 0b — LinearDependencyFilter (сверка со статьёй, находка №3)
 │   ├── informativeness_filter.py # Фаза 0a — LowInformativenessFilter (находка №5)
+│   ├── correlated_pair_splitter.py # Фаза 0c — CorrelatedPairSplitter (метод из черновика, раздел 11)
 │   ├── subclass_seed.py          # B.1  — CosineSecondVectorAttacher
 │   ├── subclass_growth.py        # B.2  — ConjugacyClusterGrowth
 │   ├── fursov_clusterer.py       # Фасад 0a→0b→A.1→A.3→B.1→B.2 — FursovClusterer

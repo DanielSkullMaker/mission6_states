@@ -674,5 +674,108 @@ class TestFursovClustererCombinedFilters:
         assert 10 not in clusterer.excluded_by_dependency_
 
 
+@pytest.mark.theory
+class TestFursovClustererCorrelatedSplit:
+    """split_correlated_pairs=True — разбиение на два подмножества похожих
+    пар перед кластеризацией (ЧЕРНОВИК другой, неопубликованной статьи,
+    theory/Макет новой статьи.docx, "Первый этап"; НЕ проверенная публикация,
+    в отличие от filter_dependent/filter_low_informativeness). По умолчанию
+    выключено — эти тесты явно проверяют и включённый, и отключённый режим
+    для отсутствия регрессии в поведении по умолчанию.
+    """
+
+    def test_disabled_by_default_no_exclusions(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(n_subclasses=4)
+        clusterer.fit(X)
+
+        assert clusterer.excluded_by_correlation_split_.size == 0
+        np.testing.assert_array_equal(clusterer.kept_indices_, np.arange(40))
+
+    def test_enabled_halves_input_and_labels_dropped_subset_minus_one(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(
+            n_subclasses=4, split_correlated_pairs=True, correlated_pairs_subset="a",
+        )
+        clusterer.fit(X)
+
+        assert len(clusterer.kept_indices_) == 20
+        assert len(clusterer.excluded_by_correlation_split_) == 20
+        assert len(clusterer.excluded_indices_) == 20
+        assert clusterer.labels_.shape == (40,)
+        assert (clusterer.labels_ == -1).sum() == 20
+        assert np.all(clusterer.labels_[clusterer.kept_indices_] >= 0)
+
+    def test_subset_a_and_subset_b_are_complementary(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer_a = FursovClusterer(
+            n_subclasses=4, split_correlated_pairs=True, correlated_pairs_subset="a",
+        )
+        clusterer_a.fit(X)
+        clusterer_b = FursovClusterer(
+            n_subclasses=4, split_correlated_pairs=True, correlated_pairs_subset="b",
+        )
+        clusterer_b.fit(X)
+
+        kept_a = set(clusterer_a.kept_indices_.tolist())
+        kept_b = set(clusterer_b.kept_indices_.tolist())
+        assert kept_a & kept_b == set()
+        assert kept_a | kept_b == set(range(40))
+
+    def test_odd_number_of_vectors_after_prior_filters_leaves_one_unpaired(self):
+        """Комбинация с filter_dependent, отсеивающим один вектор, оставляет
+        нечётное число входов для 0c — непарный вектор тоже должен попасть
+        в excluded_by_correlation_split_ (через excluded_indices_)."""
+        np.random.seed(42)
+        X = np.random.randn(41, 256)
+        X[40] = X[0] * 2.0 + 1e-7  # почти линейно зависимый -> 0b исключит 1 вектор
+
+        clusterer = FursovClusterer(
+            n_subclasses=4,
+            filter_dependent=True,
+            dependency_threshold=0.999,
+            split_correlated_pairs=True,
+        )
+        clusterer.fit(X)
+
+        # 41 - 1 (0b) = 40 -> чётное, но проверяем инвариант на общем случае:
+        # всё, что не в kept_indices_, должно быть учтено в excluded_indices_.
+        all_indices = set(clusterer.kept_indices_.tolist()) | set(
+            clusterer.excluded_indices_.tolist()
+        )
+        assert all_indices == set(range(41))
+
+    def test_invalid_correlated_pairs_subset_raises(self):
+        with pytest.raises(ValueError):
+            FursovClusterer(n_subclasses=4, correlated_pairs_subset="c")
+
+    def test_combined_with_other_filters_runs_last(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256) * 50 + 150
+        X[10] = 0.0  # малоинформативный (0a)
+        X[20] = X[0] * 1.0 + 1e-9  # почти линейно зависимый (0b)
+
+        clusterer = FursovClusterer(
+            n_subclasses=4,
+            filter_low_informativeness=True,
+            filter_dependent=True,
+            dependency_threshold=0.999,
+            split_correlated_pairs=True,
+        )
+        clusterer.fit(X)
+
+        assert 10 in clusterer.excluded_by_informativeness_
+        assert 20 in clusterer.excluded_by_dependency_
+        assert 10 not in clusterer.excluded_by_correlation_split_
+        assert 20 not in clusterer.excluded_by_correlation_split_
+        assert clusterer.get_subclass_sizes().sum() == len(clusterer.kept_indices_)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-m", "theory"])

@@ -478,6 +478,89 @@ class TestFilterLowInformativeness:
 
 
 @pytest.mark.theory
+class TestSplitCorrelatedPairs:
+    """split_correlated_pairs=True — разбиение эталонных векторов КАЖДОГО
+    класса на два подмножества похожих пар перед его кластеризацией.
+    Источник — ЧЕРНОВИК другой, неопубликованной статьи (theory/Макет новой
+    статьи.docx, "Первый этап"), НЕ проверенная публикация Korshikov & Fursov
+    (в отличие от filter_dependent/filter_low_informativeness)."""
+
+    @staticmethod
+    def _three_class_data():
+        rng = np.random.default_rng(0)
+        n_features = 256
+        X_list, y_list = [], []
+        for idx, label in enumerate(["glioma", "meningioma", "pituitary"]):
+            X_cls = rng.standard_normal((20, n_features)) + idx * 4.0
+            X_list.append(X_cls)
+            y_list.append(np.full(20, label))
+        X = np.vstack(X_list)
+        y = np.concatenate(y_list)
+        return X, y
+
+    def test_disabled_by_default_no_exclusions(self):
+        X, y = self._three_class_data()
+        clf = SubspaceConjugacyClassifier(n_subclasses=4)
+        clf.fit(X, y)
+
+        assert clf.excluded_indices_by_class_ is None
+
+    def test_enabled_excludes_half_of_each_class(self):
+        X, y = self._three_class_data()
+        clf = SubspaceConjugacyClassifier(
+            n_subclasses=4, split_correlated_pairs=True, correlated_pairs_subset="a",
+        )
+        clf.fit(X, y)
+
+        assert set(clf.excluded_indices_by_class_.keys()) == {
+            "glioma", "meningioma", "pituitary",
+        }
+        for cls in ("glioma", "meningioma", "pituitary"):
+            assert len(clf.excluded_indices_by_class_[cls]) == 10
+
+    def test_predict_and_predict_proba_still_work(self):
+        X, y = self._three_class_data()
+        clf = SubspaceConjugacyClassifier(
+            n_subclasses=4, split_correlated_pairs=True,
+        )
+        clf.fit(X, y)
+
+        preds = clf.predict(X)
+        assert set(preds).issubset({"glioma", "meningioma", "pituitary"})
+
+        probs = clf.predict_proba(X)
+        np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-8)
+
+    def test_subset_a_and_subset_b_give_disjoint_exclusions(self):
+        X, y = self._three_class_data()
+        clf_a = SubspaceConjugacyClassifier(
+            n_subclasses=4, split_correlated_pairs=True, correlated_pairs_subset="a",
+        )
+        clf_a.fit(X, y)
+        clf_b = SubspaceConjugacyClassifier(
+            n_subclasses=4, split_correlated_pairs=True, correlated_pairs_subset="b",
+        )
+        clf_b.fit(X, y)
+
+        for cls in ("glioma", "meningioma", "pituitary"):
+            excluded_a = set(clf_a.excluded_indices_by_class_[cls].tolist())
+            excluded_b = set(clf_b.excluded_indices_by_class_[cls].tolist())
+            assert excluded_a & excluded_b == set()
+
+    def test_combined_with_other_filters(self):
+        X, y = self._three_class_data()
+        clf = SubspaceConjugacyClassifier(
+            n_subclasses=4,
+            filter_low_informativeness=False,
+            filter_dependent=True,
+            dependency_threshold=0.999,
+            split_correlated_pairs=True,
+        )
+        clf.fit(X, y)
+        assert clf.excluded_indices_by_class_ is not None
+
+
+@pytest.mark.theory
 class TestPhaseCFlatArgmax:
     """Теория C: R_{c,s} для 24 (n_classes*n_subclasses) базисов, flat argmax."""
 

@@ -127,6 +127,21 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         Минимальная допустимая доля от среднего числа "белых" элементов по
         выборке класса (статья: 0.5 = 50%). Действует только если
         filter_low_informativeness=True.
+    split_correlated_pairs : bool, default=False
+        Если True — перед кластеризацией КАЖДОГО класса (после фильтров
+        filter_low_informativeness/filter_dependent, если они тоже
+        включены) прогоняет CorrelatedPairSplitter
+        (algorithms/correlated_pair_splitter.py): делит оставшиеся эталонные
+        векторы класса на два подмножества похожих пар и использует для
+        кластеризации только одно (correlated_pairs_subset). В отличие от
+        filter_dependent/filter_low_informativeness, источник этого метода —
+        ЧЕРНОВИК другой, неопубликованной статьи (theory/Макет новой
+        статьи.docx, "Первый этап"), а не проверенная публикация Korshikov &
+        Fursov про МРТ мозга. По умолчанию выключено — обратная
+        совместимость.
+    correlated_pairs_subset : {"a", "b"}, default="a"
+        Какое из двух подмножеств CorrelatedPairSplitter использовать.
+        Действует только если split_correlated_pairs=True.
 
     Attributes
     ----------
@@ -169,6 +184,8 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         filter_low_informativeness: bool = False,
         informativeness_threshold: float = 10,
         informativeness_min_fraction: float = 0.5,
+        split_correlated_pairs: bool = False,
+        correlated_pairs_subset: str = "a",
     ) -> None:
         super().__init__(
             n_subclasses=n_subclasses,
@@ -182,6 +199,8 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         self.filter_low_informativeness = filter_low_informativeness
         self.informativeness_threshold = informativeness_threshold
         self.informativeness_min_fraction = informativeness_min_fraction
+        self.split_correlated_pairs = split_correlated_pairs
+        self.correlated_pairs_subset = correlated_pairs_subset
         self.classes_: Optional[np.ndarray] = None
         self.subspaces_: Dict[ClassLabel, List[np.ndarray]] = {}
         self.flat_subclass_labels_: Optional[np.ndarray] = None
@@ -237,7 +256,11 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
 
         self.n_features_in_ = X_clean.shape[1]
         self.subspaces_ = {}
-        any_filter_enabled = self.filter_dependent or self.filter_low_informativeness
+        any_filter_enabled = (
+            self.filter_dependent
+            or self.filter_low_informativeness
+            or self.split_correlated_pairs
+        )
         excluded_indices_by_class = {} if any_filter_enabled else None
 
         for cls in self.classes_:
@@ -268,6 +291,8 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
                 filter_low_informativeness=self.filter_low_informativeness,
                 informativeness_threshold=self.informativeness_threshold,
                 informativeness_min_fraction=self.informativeness_min_fraction,
+                split_correlated_pairs=self.split_correlated_pairs,
+                correlated_pairs_subset=self.correlated_pairs_subset,
             )
             clusterer.fit(X_cls)
             self.subspaces_[cls] = clusterer.subspaces_

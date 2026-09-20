@@ -53,6 +53,7 @@ from subspace_conjugacy.algorithms.informativeness_filter import (
     DEFAULT_MIN_FRACTION_OF_MEAN,
     LowInformativenessFilter,
 )
+from subspace_conjugacy.algorithms.correlated_pair_splitter import CorrelatedPairSplitter
 from subspace_conjugacy.algorithms.subclass_export import equalize_subspace_bases
 
 # Pipeline orchestrator (Фаза 6)
@@ -155,6 +156,7 @@ __all__ = [
     "LowInformativenessFilter",
     "DEFAULT_BRIGHTNESS_THRESHOLD",
     "DEFAULT_MIN_FRACTION_OF_MEAN",
+    "CorrelatedPairSplitter",
     "equalize_subspace_bases",
     # Pipeline orchestrator
     "FursovPipeline",

@@ -8,6 +8,7 @@ from subspace_conjugacy.algorithms.informativeness_filter import (
     DEFAULT_MIN_FRACTION_OF_MEAN,
     LowInformativenessFilter,
 )
+from subspace_conjugacy.algorithms.correlated_pair_splitter import CorrelatedPairSplitter
 from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
 from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
 from subspace_conjugacy.algorithms.fursov_clusterer import FursovClusterer, SubspaceClusterer
@@ -26,6 +27,7 @@ __all__ = [
     "LowInformativenessFilter",
     "DEFAULT_BRIGHTNESS_THRESHOLD",
     "DEFAULT_MIN_FRACTION_OF_MEAN",
+    "CorrelatedPairSplitter",
     "CosineSecondVectorAttacher",
     "ConjugacyClusterGrowth",
     "FursovClusterer",

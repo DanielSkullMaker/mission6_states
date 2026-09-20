@@ -3,18 +3,28 @@
 Теория (секция 1.2-1.3 из refactoring_plan.txt):
   Этот модуль объединяет все этапы канонического алгоритма кластеризации:
 
-  ФАЗА 0 (опционально, по порядку — сначала качество, потом избыточность):
+  ФАЗА 0 (опционально, по порядку — сначала качество, потом избыточность,
+  потом разбиение на похожие пары):
     0a. LowInformativenessFilter (algorithms/informativeness_filter.py) —
         статья, 3-й эксперимент: "images with the number of white pixels
         less than 50% of the average... are cut off" (находка №5).
     0b. LinearDependencyFilter (algorithms/reference_filter.py) — статья,
         "Problem Definition": "almost linearly dependent vectors are
         excluded" (находка №3).
-    Обе выключены по умолчанию (filter_low_informativeness=False,
-    filter_dependent=False) — обратная совместимость. Если включены обе,
-    0a применяется К ИСХОДНОМУ X, а 0b — к тому, что ОСТАЛОСЬ после 0a (не
-    наоборот: сначала отбрасываем заведомо плохие по качеству образы,
-    затем ищем дубликаты среди того, что осталось содержательным).
+    0c. CorrelatedPairSplitter (algorithms/correlated_pair_splitter.py) —
+        ЧЕРНОВИК другой (неопубликованной) статьи (theory/Макет новой
+        статьи.docx, "Первый этап"): парное разбиение векторов на два
+        подмножества похожих (по косинусному сходству) пар, из которых
+        для кластеризации берётся только одно. В отличие от 0a/0b, это НЕ
+        экспорт из проверенной публикации — экспериментальная возможность.
+    Все три выключены по умолчанию (filter_low_informativeness=False,
+    filter_dependent=False, split_correlated_pairs=False) — обратная
+    совместимость. Порядок при включении нескольких: 0a применяется К
+    ИСХОДНОМУ X, 0b — к тому, что ОСТАЛОСЬ после 0a, 0c — к тому, что
+    ОСТАЛОСЬ после 0a и 0b (сначала отбрасываем заведомо плохие по качеству
+    образы, затем ищем дубликаты среди того, что осталось содержательным,
+    затем — при желании — вдвое сокращаем оставшееся через парное
+    разбиение).
 
   ФАЗА A — Поиск центров кластеров:
     A.1: GlobalMinCosinePairFinder — глобальная пара с min косинусом
@@ -48,6 +58,7 @@ from subspace_conjugacy.algorithms.informativeness_filter import (
 )
 from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
 from subspace_conjugacy.algorithms.reference_filter import LinearDependencyFilter
+from subspace_conjugacy.algorithms.correlated_pair_splitter import CorrelatedPairSplitter
 from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
 from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
 
@@ -105,6 +116,22 @@ class FursovClusterer:
         Минимальная допустимая доля от среднего числа "белых" элементов по
         выборке (статья: 0.5 = 50%). Используется только если
         filter_low_informativeness=True.
+    split_correlated_pairs : bool, default=False
+        Если True — после фильтров 0a/0b, перед фазой A.1, прогоняет
+        CorrelatedPairSplitter (algorithms/correlated_pair_splitter.py):
+        итеративно разбивает оставшиеся векторы на пары наиболее похожих
+        (максимум косинусного сходства) и делит каждую пару между двумя
+        подмножествами — для кластеризации используется только одно из них
+        (см. correlated_pairs_subset). Источник — ЧЕРНОВИК другой,
+        неопубликованной статьи (theory/Макет новой статьи.docx, "Первый
+        этап"), НЕ проверенная публикация Korshikov & Fursov про МРТ мозга
+        (в отличие от filter_dependent/filter_low_informativeness). По
+        умолчанию выключено — обратная совместимость.
+    correlated_pairs_subset : {"a", "b"}, default="a"
+        Какое из двух подмножеств CorrelatedPairSplitter использовать для
+        кластеризации. Черновик утверждает, что оба равноценны ("любое из
+        этих подмножеств может использоваться"). Используется только если
+        split_correlated_pairs=True.
 
     Attributes
     ----------
@@ -135,6 +162,11 @@ class FursovClusterer:
         Индексы (в исходном X), исключённые именно LinearDependencyFilter
         (подмножество excluded_indices_). Пустой массив, если
         filter_dependent=False.
+    excluded_by_correlation_split_ : np.ndarray or None
+        Индексы (в исходном X) векторов из НЕиспользованного подмножества
+        CorrelatedPairSplitter (плюс непарный вектор при нечётном числе
+        входных векторов), подмножество excluded_indices_. Пустой массив,
+        если split_correlated_pairs=False.
     n_subclasses_ : int or None
         Количество подклассов (равно n_subclasses).
     is_fitted_ : bool
@@ -169,6 +201,8 @@ class FursovClusterer:
         filter_low_informativeness: bool = False,
         informativeness_threshold: float = DEFAULT_BRIGHTNESS_THRESHOLD,
         informativeness_min_fraction: float = DEFAULT_MIN_FRACTION_OF_MEAN,
+        split_correlated_pairs: bool = False,
+        correlated_pairs_subset: Literal["a", "b"] = "a",
     ) -> None:
         if n_subclasses < 2:
             raise ValueError(f"n_subclasses должен быть >= 2, получено {n_subclasses}")
@@ -194,6 +228,12 @@ class FursovClusterer:
                 f"{informativeness_min_fraction}"
             )
 
+        if correlated_pairs_subset not in ("a", "b"):
+            raise ValueError(
+                f"correlated_pairs_subset должен быть 'a' или 'b', получено "
+                f"{correlated_pairs_subset!r}"
+            )
+
         self.n_subclasses = n_subclasses
         self.freeze_basis_at = freeze_basis_at
         self.growth_strategy = growth_strategy
@@ -203,6 +243,8 @@ class FursovClusterer:
         self.filter_low_informativeness = filter_low_informativeness
         self.informativeness_threshold = informativeness_threshold
         self.informativeness_min_fraction = informativeness_min_fraction
+        self.split_correlated_pairs = split_correlated_pairs
+        self.correlated_pairs_subset = correlated_pairs_subset
 
         # Результаты fit()
         self.subspaces_: Optional[List[np.ndarray]] = None
@@ -213,12 +255,14 @@ class FursovClusterer:
         self.excluded_indices_: Optional[np.ndarray] = None
         self.excluded_by_informativeness_: Optional[np.ndarray] = None
         self.excluded_by_dependency_: Optional[np.ndarray] = None
+        self.excluded_by_correlation_split_: Optional[np.ndarray] = None
         self.n_subclasses_: Optional[int] = None
         self.is_fitted_: bool = False
 
         # Внутренние компоненты (для отладки/анализа)
         self._informativeness_filter: Optional[LowInformativenessFilter] = None
         self._dependency_filter: Optional[LinearDependencyFilter] = None
+        self._pair_splitter: Optional[CorrelatedPairSplitter] = None
         self._pair_finder: Optional[GlobalMinCosinePairFinder] = None
         self._center_builder: Optional[ReferenceCenterBuilder] = None
         self._seed_attacher: Optional[CosineSecondVectorAttacher] = None
@@ -248,10 +292,11 @@ class FursovClusterer:
         logger.info(
             "FursovClusterer.fit: старт, %d векторов, N=%d, n_subclasses=%d, "
             "freeze_basis_at=%s, growth_strategy=%s, filter_low_informativeness=%s, "
-            "filter_dependent=%s.",
+            "filter_dependent=%s, split_correlated_pairs=%s.",
             X_arr.shape[0], X_arr.shape[1], self.n_subclasses,
             self.freeze_basis_at, self.growth_strategy,
             self.filter_low_informativeness, self.filter_dependent,
+            self.split_correlated_pairs,
         )
 
         # ФАЗА 0a (опционально): фильтр малоинформативных векторов (статья,
@@ -300,7 +345,43 @@ class FursovClusterer:
             self._dependency_filter = None
             excluded_by_dependency = np.array([], dtype=int)
 
-        excluded_idx = np.union1d(excluded_by_informativeness, excluded_by_dependency)
+        # ФАЗА 0c (опционально): разбиение на пары похожих векторов
+        # (черновик другой статьи, theory/Макет новой статьи.docx, "Первый
+        # этап") — применяется к тому, что ОСТАЛОСЬ после 0a и 0b. Для
+        # кластеризации берётся только одно из двух построенных подмножеств
+        # (correlated_pairs_subset); другое (и непарный вектор, если M
+        # нечётно) исключается точно так же, как и 0a/0b.
+        if self.split_correlated_pairs:
+            phase_start = time.perf_counter()
+            self._pair_splitter = CorrelatedPairSplitter()
+            self._pair_splitter.fit(X_arr[kept_idx])
+            if self.correlated_pairs_subset == "a":
+                used_subset_local = self._pair_splitter.subset_a_indices_
+                other_subset_local = self._pair_splitter.subset_b_indices_
+            else:
+                used_subset_local = self._pair_splitter.subset_b_indices_
+                other_subset_local = self._pair_splitter.subset_a_indices_
+            dropped_local = other_subset_local
+            if self._pair_splitter.unpaired_index_ is not None:
+                dropped_local = np.concatenate(
+                    [dropped_local, [self._pair_splitter.unpaired_index_]]
+                )
+            excluded_by_correlation_split = kept_idx[dropped_local]
+            kept_idx = kept_idx[used_subset_local]
+            logger.debug(
+                "FursovClusterer.fit: разбиение на похожие пары заняло %.3fs, "
+                "оставлено %d/%d (подмножество '%s').",
+                time.perf_counter() - phase_start, len(used_subset_local),
+                len(used_subset_local) + len(dropped_local), self.correlated_pairs_subset,
+            )
+        else:
+            self._pair_splitter = None
+            excluded_by_correlation_split = np.array([], dtype=int)
+
+        excluded_idx = np.union1d(
+            np.union1d(excluded_by_informativeness, excluded_by_dependency),
+            excluded_by_correlation_split,
+        )
         X_for_clustering = X_arr[kept_idx]
 
         min_required = self.n_subclasses * 2
@@ -370,16 +451,17 @@ class FursovClusterer:
         self.excluded_indices_ = excluded_idx
         self.excluded_by_informativeness_ = excluded_by_informativeness
         self.excluded_by_dependency_ = excluded_by_dependency
+        self.excluded_by_correlation_split_ = excluded_by_correlation_split
         self.n_subclasses_ = self.n_subclasses
         self.is_fitted_ = True
 
         logger.info(
             "FursovClusterer.fit: готово за %.3fs, размеры подклассов=%s "
             "(исключено всего: %d; малоинформативных: %d; почти линейно "
-            "зависимых: %d).",
+            "зависимых: %d; отсеяно разбиением на похожие пары: %d).",
             time.perf_counter() - fit_start, self.get_subclass_sizes().tolist(),
             len(excluded_idx), len(excluded_by_informativeness),
-            len(excluded_by_dependency),
+            len(excluded_by_dependency), len(excluded_by_correlation_split),
         )
 
         return self
