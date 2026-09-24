@@ -777,5 +777,96 @@ class TestFursovClustererCorrelatedSplit:
         assert clusterer.get_subclass_sizes().sum() == len(clusterer.kept_indices_)
 
 
+@pytest.mark.theory
+class TestFursovClustererEarlyStopping:
+    """early_stopping — прокидывание критерия ранней остановки фазы B.2 из
+    ConjugacyClusterGrowth (theory/article_plans/01_iterativnyi_algoritm.txt).
+    По умолчанию выключено — рост идёт до конца, как раньше.
+    """
+
+    def test_disabled_by_default(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(n_subclasses=4)
+        clusterer.fit(X)
+
+        assert clusterer.stopped_early_ is False
+        assert clusterer.excluded_by_early_stopping_.size == 0
+        assert not np.any(clusterer.labels_ == -1)
+
+    def test_fixed_fraction_leaves_vectors_unassigned_with_label_minus_one(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(
+            n_subclasses=4,
+            early_stopping="fixed_fraction",
+            early_stopping_threshold=0.3,
+        )
+        clusterer.fit(X)
+
+        assert clusterer.stopped_early_ is True
+        assert len(clusterer.excluded_by_early_stopping_) > 0
+        assert set(clusterer.excluded_by_early_stopping_) == set(
+            np.where(clusterer.labels_ == -1)[0]
+        )
+        # Индексы возвращены в пространстве исходного X, как и у остальных
+        # excluded_by_* атрибутов.
+        assert clusterer.excluded_by_early_stopping_.max() < X.shape[0]
+
+    def test_store_growth_history_populates_attribute(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(n_subclasses=4, store_growth_history=True)
+        clusterer.fit(X)
+
+        assert clusterer.growth_history_ is not None
+        assert len(clusterer.growth_history_) > 0
+
+    def test_store_growth_history_none_by_default(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(n_subclasses=4)
+        clusterer.fit(X)
+
+        assert clusterer.growth_history_ is None
+
+    def test_combined_with_correlated_split_indices_stay_in_global_space(self):
+        """early_stopping поверх split_correlated_pairs — оба набора
+        исключённых индексов должны оставаться в пространстве исходного X
+        и не пересекаться (разные причины исключения)."""
+        np.random.seed(42)
+        X = np.random.randn(40, 256)
+
+        clusterer = FursovClusterer(
+            n_subclasses=2,
+            split_correlated_pairs=True,
+            correlated_pairs_subset="a",
+            early_stopping="fixed_fraction",
+            early_stopping_threshold=0.2,
+        )
+        clusterer.fit(X)
+
+        assert clusterer.excluded_by_correlation_split_.max() < X.shape[0]
+        assert clusterer.excluded_by_early_stopping_.max() < X.shape[0]
+        assert set(clusterer.excluded_by_correlation_split_).isdisjoint(
+            set(clusterer.excluded_by_early_stopping_)
+        )
+
+    def test_invalid_early_stopping_raises(self):
+        with pytest.raises(ValueError, match="early_stopping должен быть"):
+            FursovClusterer(n_subclasses=4, early_stopping="invalid")
+
+    def test_invalid_early_stopping_threshold_raises(self):
+        with pytest.raises(ValueError, match="early_stopping_threshold должен быть"):
+            FursovClusterer(
+                n_subclasses=4, early_stopping="fixed_fraction",
+                early_stopping_threshold=0.0,
+            )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-m", "theory"])

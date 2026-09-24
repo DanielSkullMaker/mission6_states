@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import List, Literal, Union
+from typing import Dict, List, Literal, Sequence, Union
 import numpy as np
 from pathlib import Path
 
@@ -126,6 +126,76 @@ def vectorize_batch(
     return X
 
 
+def vectorize_batch_multi(
+    images: Union[List[np.ndarray], np.ndarray],
+    methods: Sequence[VectorizationType] = ("horizontal", "vertical"),
+) -> Dict[str, np.ndarray]:
+    """Векторизует один батч изображений СРАЗУ несколькими методами.
+
+    Нужно для мультипредставительной гибридизации (статья 3,
+    theory/article_plans/03_multipredstavitelnaya_gibridizatsiya.txt,
+    models.multi_representation.MultiRepresentationConjugacyClassifier):
+    каждое изображение декодируется/приводится к grayscale ОДИН раз, а не по
+    разу на каждое представление, как было бы при отдельных вызовах
+    vectorize_batch(images, method=...) для каждого метода.
+
+    Parameters
+    ----------
+    images : List[np.ndarray] or np.ndarray
+        Список изображений или 3D/4D массив, как в vectorize_batch.
+    methods : Sequence[{"horizontal", "vertical"}], default=("horizontal", "vertical")
+        Методы развёртки, для каждого из которых строится своя матрица X.
+
+    Returns
+    -------
+    X_by_method : Dict[str, np.ndarray]
+        Словарь {метод: X (N, H*W)} — по одной матрице на каждый элемент
+        methods, готовый для передачи в
+        MultiRepresentationConjugacyClassifier.fit()/predict()
+        (X_by_representation).
+
+    Examples
+    --------
+    >>> imgs = [np.random.randint(0, 256, (256, 256)) for _ in range(10)]
+    >>> X_by_method = vectorize_batch_multi(imgs)
+    >>> sorted(X_by_method.keys())
+    ['horizontal', 'vertical']
+    >>> X_by_method["horizontal"].shape
+    (10, 65536)
+    """
+    if isinstance(images, np.ndarray):
+        if images.ndim in (3, 4):
+            images_list = [images[i] for i in range(images.shape[0])]
+        else:
+            raise ValueError(
+                f"Expected 3D or 4D array, got {images.ndim}D array."
+            )
+    else:
+        images_list = images
+
+    images_gray = [_ensure_grayscale(img) for img in images_list]
+    X_by_method: Dict[str, np.ndarray] = {}
+    for method in methods:
+        if method == "horizontal":
+            vectors = [img.flatten() for img in images_gray]
+        elif method == "vertical":
+            vectors = [img.ravel(order="F") for img in images_gray]
+        else:
+            logger.error("vectorize_batch_multi: неизвестный method '%s'.", method)
+            raise ValueError(
+                f"Unknown vectorization method: '{method}'. "
+                f"Expected 'horizontal' or 'vertical'."
+            )
+        X_by_method[method] = np.vstack(vectors)
+
+    logger.debug(
+        "vectorize_batch_multi: %d изображений, methods=%s -> shapes=%s.",
+        len(images_list), list(methods),
+        {k: v.shape for k, v in X_by_method.items()},
+    )
+    return X_by_method
+
+
 def load_and_vectorize(
     image_path: Union[str, Path],
     method: VectorizationType = "horizontal",
@@ -228,6 +298,72 @@ def load_and_vectorize_batch(
     X = np.vstack(vectors)
     logger.info("load_and_vectorize_batch: готово, X.shape=%s.", X.shape)
     return X
+
+
+def load_and_vectorize_batch_multi(
+    image_paths: List[Union[str, Path]],
+    methods: Sequence[VectorizationType] = ("horizontal", "vertical"),
+    backend: Literal["cv2", "pil"] = "cv2",
+) -> Dict[str, np.ndarray]:
+    """Загружает батч изображений с диска и векторизует СРАЗУ несколькими методами.
+
+    Каждый файл читается с диска ровно один раз (в отличие от отдельных
+    вызовов load_and_vectorize_batch на каждый method) — см.
+    vectorize_batch_multi.
+
+    Parameters
+    ----------
+    image_paths : List[str or Path]
+        Список путей к изображениям.
+    methods : Sequence[{"horizontal", "vertical"}], default=("horizontal", "vertical")
+        Методы развёртки, для каждого из которых строится своя матрица X.
+    backend : {"cv2", "pil"}, default="cv2"
+        Библиотека для загрузки изображений.
+
+    Returns
+    -------
+    X_by_method : Dict[str, np.ndarray]
+        Словарь {метод: X (N, H*W)}, готовый для
+        MultiRepresentationConjugacyClassifier.fit()/predict().
+    """
+    logger.info(
+        "load_and_vectorize_batch_multi: старт, %d файлов (methods=%s, backend=%s).",
+        len(image_paths), list(methods), backend,
+    )
+    images = []
+    for path in image_paths:
+        p = Path(path)
+        if not p.exists():
+            logger.error("load_and_vectorize_batch_multi: файл не найден '%s'.", p)
+            raise FileNotFoundError(f"Image file not found: {p}")
+        if backend == "cv2":
+            if cv2 is None:
+                logger.error("load_and_vectorize_batch_multi: OpenCV не установлен.")
+                raise ValueError(
+                    "OpenCV (cv2) not available. Install: pip install opencv-python-headless"
+                )
+            img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                logger.error("load_and_vectorize_batch_multi: cv2 не смог декодировать '%s'.", p)
+                raise ValueError(f"Failed to load image with cv2: {p}")
+        elif backend == "pil":
+            if Image is None:
+                logger.error("load_and_vectorize_batch_multi: Pillow не установлен.")
+                raise ValueError(
+                    "Pillow (PIL) not available. Install: pip install pillow"
+                )
+            img = np.array(Image.open(p).convert("L"))
+        else:
+            logger.error("load_and_vectorize_batch_multi: неизвестный backend '%s'.", backend)
+            raise ValueError(f"Unknown backend: '{backend}'. Expected 'cv2' or 'pil'.")
+        images.append(img)
+
+    X_by_method = vectorize_batch_multi(images, methods=methods)
+    logger.info(
+        "load_and_vectorize_batch_multi: готово, shapes=%s.",
+        {k: v.shape for k, v in X_by_method.items()},
+    )
+    return X_by_method
 
 
 def _ensure_grayscale(image: np.ndarray) -> np.ndarray:

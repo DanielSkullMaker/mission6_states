@@ -41,6 +41,14 @@ from subspace_conjugacy.core.metrics import (
 from subspace_conjugacy.models.base import BaseSubspaceEstimator
 from subspace_conjugacy.models.classifier import SubspaceConjugacyClassifier
 from subspace_conjugacy.models.sequential_classifier import SequentialClassifier
+from subspace_conjugacy.models.ensemble import (
+    PrefitVotingClassifier,
+    PrefitStackingClassifier,
+    SwitchingEnsembleClassifier,
+)
+from subspace_conjugacy.models.multi_representation import (
+    MultiRepresentationConjugacyClassifier,
+)
 
 # Canonical algorithms (фасад A+B)
 from subspace_conjugacy.algorithms.fursov_clusterer import (
@@ -74,8 +82,10 @@ from subspace_conjugacy.preprocessing.binarization import otsu_binarize, otsu_th
 from subspace_conjugacy.features.vectorization import (
     vectorize_image,
     vectorize_batch,
+    vectorize_batch_multi,
     load_and_vectorize,
     load_and_vectorize_batch,
+    load_and_vectorize_batch_multi,
 )
 from subspace_conjugacy.features.extraction import (
     extract_class_vectors,
@@ -83,11 +93,35 @@ from subspace_conjugacy.features.extraction import (
     extract_training_data,
 )
 
+# Audio/video feature extraction (статья 4)
+from subspace_conjugacy.features.audio import (
+    load_waveform,
+    compute_spectrogram,
+    compute_mfcc,
+    mel_filterbank,
+    pad_or_truncate_frames,
+    vectorize_audio,
+    load_and_vectorize_audio,
+    load_and_vectorize_audio_batch,
+)
+from subspace_conjugacy.features.video import (
+    extract_frames,
+    extract_frames_from_paths,
+    vectorize_frames_concat,
+    vectorize_frames_keyframe,
+    vectorize_video,
+    load_and_vectorize_video,
+    load_and_vectorize_video_batch,
+)
+
 # Evaluation (Phase C, NB8)
 from subspace_conjugacy.evaluation.metrics import (
     confidence_summary,
     evaluate_classifier,
     per_class_accuracy,
+)
+from subspace_conjugacy.evaluation.ensemble_diagnostics import (
+    compute_ensemble_diagnostics,
 )
 
 # IO and persistence
@@ -149,6 +183,10 @@ __all__ = [
     "BaseSubspaceEstimator",
     "SubspaceConjugacyClassifier",
     "SequentialClassifier",
+    "PrefitVotingClassifier",
+    "PrefitStackingClassifier",
+    "SwitchingEnsembleClassifier",
+    "MultiRepresentationConjugacyClassifier",
     # Canonical algorithms
     "FursovClusterer",
     "SubspaceClusterer",  # Alias
@@ -170,15 +208,35 @@ __all__ = [
     # Feature extraction
     "vectorize_image",
     "vectorize_batch",
+    "vectorize_batch_multi",
     "load_and_vectorize",
     "load_and_vectorize_batch",
+    "load_and_vectorize_batch_multi",
     "extract_class_vectors",
     "extract_all_classes",
     "extract_training_data",
+    # Audio (статья 4)
+    "load_waveform",
+    "compute_spectrogram",
+    "compute_mfcc",
+    "mel_filterbank",
+    "pad_or_truncate_frames",
+    "vectorize_audio",
+    "load_and_vectorize_audio",
+    "load_and_vectorize_audio_batch",
+    # Video (статья 4)
+    "extract_frames",
+    "extract_frames_from_paths",
+    "vectorize_frames_concat",
+    "vectorize_frames_keyframe",
+    "vectorize_video",
+    "load_and_vectorize_video",
+    "load_and_vectorize_video_batch",
     # Evaluation
     "confidence_summary",
     "evaluate_classifier",
     "per_class_accuracy",
+    "compute_ensemble_diagnostics",
     # IO - persistence
     "save_model",
     "load_model",

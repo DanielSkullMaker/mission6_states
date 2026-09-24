@@ -83,16 +83,54 @@ class ConjugacyClusterGrowth:
           НЕ побитовая реплика NB7
     reg_param : float, default=1e-8
         Параметр регуляризации Тихонова для (Y^T Y)^{-1}.
+    early_stopping : {"relative_drop", "fixed_fraction"} or None, default=None
+        Критерий ранней остановки итерационного роста (статья "Итерационное
+        наращивание опорных подпространств...", theory/article_plans/01_
+        iterativnyi_algoritm.txt, задача 4). Векторы, не успевшие
+        присоединиться к моменту остановки, остаются с меткой -1 (см.
+        excluded_by_early_stopping_) — как и у остальных фильтров
+        библиотеки (LinearDependencyFilter, LowInformativenessFilter).
+        - None (по умолчанию): рост идёт до исчерпания remaining — текущее
+          поведение канона B.2, без изменений.
+        - "relative_drop": остановка, когда наилучшее R текущей итерации
+          падает ниже ``early_stopping_threshold * R_первой_итерации`` —
+          сигнал, что легко сопряжённые векторы уже присоединены и
+          начинаются «дорогие» присоединения с падающим качеством.
+        - "fixed_fraction": остановка после присоединения доли
+          ``early_stopping_threshold`` от общего числа векторов,
+          подлежащих распределению (простой бюджетный критерий).
+    early_stopping_threshold : float, default=0.1
+        Порог для выбранного early_stopping. Для "relative_drop" — доля от
+        R первой итерации (0.1 = остановиться, когда R упадёт ниже 10% от
+        начального значения). Для "fixed_fraction" — доля от общего числа
+        векторов, подлежащих распределению (0.1 = присоединить только 10%
+        и остановиться). Игнорируется, если early_stopping is None.
+        Должен быть в (0, 1].
 
     Attributes
     ----------
     labels_ : np.ndarray or None
-        Метки подклассов для каждого вектора (M,).
+        Метки подклассов для каждого вектора (M,). Векторы, оставшиеся
+        неразмеченными из-за ранней остановки, имеют метку -1.
     subspace_bases_ : list[np.ndarray] or None
         Финальные базисы подпространств (N, k).
         Если freeze_basis_at задан, k = freeze_basis_at.
     n_subclasses_ : int or None
         Количество подклассов.
+    growth_history_ : list[dict] or None
+        История роста по итерациям — заполняется, только если
+        fit(..., store_history=True). Каждая запись:
+        {"iteration", "vector_index", "subclass_index", "r_value",
+        "basis_size", "gram_condition_number", "n_remaining_after"}.
+        Прямой источник кривых R(k) и обусловленности (Y^T Y) для анализа
+        сходимости (см. get_growth_curve()).
+    excluded_by_early_stopping_ : np.ndarray or None
+        Индексы векторов, оставшихся неразмеченными из-за ранней
+        остановки. Пустой массив, если early_stopping is None либо
+        критерий не сработал (рост дошёл до конца естественным образом).
+    stopped_early_ : bool
+        True, если рост был прерван критерием ранней остановки до
+        исчерпания remaining.
     is_fitted_ : bool
         Флаг, указывающий, был ли выполнен fit().
 
@@ -133,6 +171,8 @@ class ConjugacyClusterGrowth:
         freeze_basis_at: Optional[int] = 2,
         strategy: Literal["default", "master"] = "default",
         reg_param: float = 1e-8,
+        early_stopping: Optional[Literal["relative_drop", "fixed_fraction"]] = None,
+        early_stopping_threshold: float = 0.1,
     ) -> None:
         if freeze_basis_at is not None and freeze_basis_at < 2:
             raise ValueError(f"freeze_basis_at должен быть >= 2, получено {freeze_basis_at}")
@@ -140,19 +180,37 @@ class ConjugacyClusterGrowth:
         if strategy not in ("default", "master"):
             raise ValueError(f"strategy должен быть 'default' или 'master', получено {strategy}")
 
+        if early_stopping is not None and early_stopping not in ("relative_drop", "fixed_fraction"):
+            raise ValueError(
+                f"early_stopping должен быть None, 'relative_drop' или "
+                f"'fixed_fraction', получено {early_stopping!r}."
+            )
+
+        if early_stopping is not None and not (0.0 < early_stopping_threshold <= 1.0):
+            raise ValueError(
+                f"early_stopping_threshold должен быть в (0, 1], получено "
+                f"{early_stopping_threshold}."
+            )
+
         self.freeze_basis_at = freeze_basis_at
         self.strategy = strategy
         self.reg_param = reg_param
+        self.early_stopping = early_stopping
+        self.early_stopping_threshold = early_stopping_threshold
 
         self.labels_: Optional[np.ndarray] = None
         self.subspace_bases_: Optional[List[np.ndarray]] = None
         self.n_subclasses_: Optional[int] = None
+        self.growth_history_: Optional[List[dict]] = None
+        self.excluded_by_early_stopping_: Optional[np.ndarray] = None
+        self.stopped_early_: bool = False
         self.is_fitted_: bool = False
 
     def fit(
         self,
         X: np.ndarray,
         pairs: np.ndarray,
+        store_history: bool = False,
     ) -> "ConjugacyClusterGrowth":
         """Распределяет векторы по подклассам через последовательный рост.
 
@@ -163,6 +221,13 @@ class ConjugacyClusterGrowth:
         pairs : np.ndarray
             Начальные пары индексов размерности (S, 2) из CosineSecondVectorAttacher.
             pairs[s] = [center_index, second_vector_index] для подкласса s.
+        store_history : bool, default=False
+            Сохранять ли историю роста (значение R, размер базиса и число
+            обусловленности матрицы Грама на каждой итерации) в
+            growth_history_. По умолчанию выключено — вычисление числа
+            обусловленности на каждом шаге даёт заметный оверхед только при
+            явном запросе (тот же принцип, что у ReferenceCenterBuilder.
+            fit(..., store_history=...)).
 
         Returns
         -------
@@ -205,6 +270,10 @@ class ConjugacyClusterGrowth:
         # заваливать вывод на больших датасетах — детальный разбор каждой
         # итерации доступен на DEBUG.
         progress_step = max(1, total_to_assign // 10)
+        growth_history: Optional[List[dict]] = [] if store_history else None
+        first_best_R: Optional[float] = None
+        stopped_early = False
+
         while remaining:
             # 1. Вычисляем R_matrix (len(remaining), n_subclasses)
             R_matrix = self._compute_conjugacy_matrix(
@@ -217,6 +286,8 @@ class ConjugacyClusterGrowth:
             else:  # master
                 r_idx, s_idx = self._find_argmax_master(R_matrix)
 
+            best_R = float(R_matrix[r_idx, s_idx])
+
             # 3. Присоединяем вектор к подклассу
             vector_idx = remaining[r_idx]
             labels[vector_idx] = s_idx
@@ -224,14 +295,29 @@ class ConjugacyClusterGrowth:
                 "ConjugacyClusterGrowth.fit: итерация %d/%d — вектор %d -> "
                 "подкласс %d (R=%.6f, базис Y теперь k=%d, remaining=%d).",
                 iteration + 1, total_to_assign, vector_idx, s_idx,
-                float(R_matrix[r_idx, s_idx]), Y_bases[s_idx].shape[1] + 1,
-                len(remaining) - 1,
+                best_R, Y_bases[s_idx].shape[1] + 1, len(remaining) - 1,
             )
 
             # 4. Обновляем базис подкласса
             Y_bases[s_idx] = self._append_to_basis(
                 Y_bases[s_idx], X_arr[vector_idx]
             )
+
+            if store_history:
+                gram = Y_bases[s_idx].T @ Y_bases[s_idx]
+                try:
+                    cond = float(np.linalg.cond(gram))
+                except np.linalg.LinAlgError:
+                    cond = float("inf")
+                growth_history.append({
+                    "iteration": iteration + 1,
+                    "vector_index": int(vector_idx),
+                    "subclass_index": int(s_idx),
+                    "r_value": best_R,
+                    "basis_size": int(Y_bases[s_idx].shape[1]),
+                    "gram_condition_number": cond,
+                    "n_remaining_after": len(remaining) - 1,
+                })
 
             # 5. Удаляем вектор из remaining
             remaining.pop(r_idx)
@@ -242,6 +328,43 @@ class ConjugacyClusterGrowth:
                     "ConjugacyClusterGrowth.fit: прогресс %d/%d векторов распределено.",
                     iteration, total_to_assign,
                 )
+
+            # 6. Критерий ранней остановки (theory/article_plans/01_
+            #    iterativnyi_algoritm.txt) — проверяем ПОСЛЕ присоединения
+            #    текущего вектора, и только если ещё есть что распределять:
+            #    иначе на последней итерации естественное завершение (когда
+            #    remaining уже пуст) ошибочно засчиталось бы как "ранняя"
+            #    остановка. Первая итерация только фиксирует точку отсчёта
+            #    R_первой_итерации для "relative_drop" — останов возможен не
+            #    раньше второй.
+            if not remaining:
+                pass
+            elif self.early_stopping == "relative_drop":
+                if first_best_R is None:
+                    first_best_R = best_R
+                elif first_best_R > 0 and best_R < self.early_stopping_threshold * first_best_R:
+                    logger.info(
+                        "ConjugacyClusterGrowth.fit: ранняя остановка "
+                        "(relative_drop) на итерации %d/%d — R=%.6f < "
+                        "%.2f * R_first=%.6f, %d векторов останутся "
+                        "неразмеченными.",
+                        iteration, total_to_assign, best_R,
+                        self.early_stopping_threshold, first_best_R,
+                        len(remaining),
+                    )
+                    stopped_early = True
+                    break
+            elif self.early_stopping == "fixed_fraction":
+                if iteration >= self.early_stopping_threshold * total_to_assign:
+                    logger.info(
+                        "ConjugacyClusterGrowth.fit: ранняя остановка "
+                        "(fixed_fraction) на итерации %d/%d (порог=%.0f%%), "
+                        "%d векторов останутся неразмеченными.",
+                        iteration, total_to_assign,
+                        self.early_stopping_threshold * 100, len(remaining),
+                    )
+                    stopped_early = True
+                    break
 
         # Финализация: freeze базисов если требуется
         if self.freeze_basis_at is not None:
@@ -254,10 +377,15 @@ class ConjugacyClusterGrowth:
         self.labels_ = labels
         self.subspace_bases_ = Y_bases
         self.n_subclasses_ = n_subclasses
+        self.growth_history_ = growth_history
+        self.excluded_by_early_stopping_ = np.array(remaining, dtype=int)
+        self.stopped_early_ = stopped_early
         self.is_fitted_ = True
         logger.info(
-            "ConjugacyClusterGrowth.fit: B.2 готово, размеры подклассов=%s.",
-            np.bincount(labels, minlength=n_subclasses).tolist(),
+            "ConjugacyClusterGrowth.fit: B.2 готово, размеры подклассов=%s%s.",
+            np.bincount(labels[labels >= 0], minlength=n_subclasses).tolist(),
+            f", {len(remaining)} векторов не распределено (ранняя остановка)"
+            if stopped_early else "",
         )
 
         return self
@@ -335,6 +463,9 @@ class ConjugacyClusterGrowth:
     def get_subclass_sizes(self) -> np.ndarray:
         """Возвращает количество векторов в каждом подклассе.
 
+        Векторы, оставшиеся неразмеченными из-за ранней остановки
+        (метка -1, см. excluded_by_early_stopping_), в подсчёт не входят.
+
         Returns
         -------
         sizes : np.ndarray
@@ -346,7 +477,37 @@ class ConjugacyClusterGrowth:
             Если fit() ещё не был вызван.
         """
         self._check_is_fitted()
-        return np.bincount(self.labels_, minlength=self.n_subclasses_)
+        return np.bincount(self.labels_[self.labels_ >= 0], minlength=self.n_subclasses_)
+
+    def get_growth_curve(self) -> np.ndarray:
+        """Возвращает последовательность R-значений в порядке присоединения.
+
+        Прямой источник кривой R(k) для анализа сходимости (theory/
+        article_plans/01_iterativnyi_algoritm.txt, задача 2) — R_matrix[k]
+        здесь соответствует значению R, с которым к своему подклассу был
+        присоединён k-й по счёту вектор (глобальный порядок итераций, не
+        порядок внутри одного подкласса). Для разбивки по подклассам или
+        доступа к числу обусловленности матрицы Грама на каждом шаге
+        используйте growth_history_ напрямую.
+
+        Returns
+        -------
+        r_values : np.ndarray
+            Массив R-значений длины len(growth_history_).
+
+        Raises
+        ------
+        RuntimeError
+            Если fit() ещё не был вызван, либо был вызван без
+            store_history=True.
+        """
+        self._check_is_fitted()
+        if self.growth_history_ is None:
+            raise RuntimeError(
+                "История роста не сохранена — вызовите fit(X, pairs, "
+                "store_history=True) перед get_growth_curve()."
+            )
+        return np.array([record["r_value"] for record in self.growth_history_])
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Предсказывает подкласс для новых векторов.
@@ -445,13 +606,19 @@ class ConjugacyClusterGrowth:
             )
 
     def __repr__(self) -> str:
+        es = (
+            f", early_stopping='{self.early_stopping}'"
+            f"(threshold={self.early_stopping_threshold})"
+            if self.early_stopping is not None else ""
+        )
         if self.is_fitted_:
+            stopped = f", stopped_early={self.stopped_early_}" if self.early_stopping else ""
             return (
                 f"ConjugacyClusterGrowth(n_subclasses={self.n_subclasses_}, "
-                f"freeze_basis_at={self.freeze_basis_at}, strategy='{self.strategy}', "
-                f"fitted=True)"
+                f"freeze_basis_at={self.freeze_basis_at}, strategy='{self.strategy}'"
+                f"{es}{stopped}, fitted=True)"
             )
         return (
             f"ConjugacyClusterGrowth(freeze_basis_at={self.freeze_basis_at}, "
-            f"strategy='{self.strategy}', fitted=False)"
+            f"strategy='{self.strategy}'{es}, fitted=False)"
         )

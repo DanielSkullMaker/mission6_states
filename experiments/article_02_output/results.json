@@ -1,0 +1,255 @@
+{
+  "config": {
+    "dataset": "HAM10000/ISIC2018, полный набор данных, скачан напрямую с Harvard Dataverse (doi:10.7910/DVN/DBW86T), изображения приведены к 128x128",
+    "img_size": 128,
+    "classes": {
+      "0": {
+        "code": "akiec",
+        "label_ru": "актинический кератоз"
+      },
+      "1": {
+        "code": "bcc",
+        "label_ru": "базальноклеточный рак"
+      },
+      "2": {
+        "code": "bkl",
+        "label_ru": "доброкачественный кератоз"
+      },
+      "3": {
+        "code": "df",
+        "label_ru": "дерматофиброма"
+      },
+      "4": {
+        "code": "mel",
+        "label_ru": "меланома"
+      },
+      "5": {
+        "code": "nv",
+        "label_ru": "меланоцитарный невус"
+      },
+      "6": {
+        "code": "vasc",
+        "label_ru": "сосудистое новообразование"
+      }
+    },
+    "class_totals_full_dataset": {
+      "akiec": 327,
+      "bcc": 514,
+      "bkl": 1099,
+      "df": 115,
+      "mel": 1113,
+      "nv": 6705,
+      "vasc": 142
+    },
+    "train_n_per_class": 60,
+    "val_n_per_class": 15,
+    "test_n_per_class": 30,
+    "n_train_total": 420,
+    "n_val_total": 105,
+    "n_test_total": 210,
+    "n_subclasses": 4,
+    "pca_components": 30,
+    "cnn_epochs": 40,
+    "random_seed": 42
+  },
+  "reconstruction_demo": {
+    "demo_class": "4",
+    "demo_class_label": "меланома",
+    "n_demo": 5,
+    "r_values": [
+      0.9905684337440727,
+      0.9970251105559129,
+      0.992553508271556,
+      0.9968395088617289,
+      0.9823151475592822
+    ]
+  },
+  "base_model_train_time_seconds": {
+    "subspace": 37.873538799991366,
+    "classical_ml": 2.2472084000182804,
+    "cnn": 29.09303029999137
+  },
+  "diagnostics_val": {
+    "n_samples": 105,
+    "model_names": [
+      "subspace",
+      "classical_ml",
+      "cnn"
+    ],
+    "accuracy_by_model": {
+      "subspace": 0.29523809523809524,
+      "classical_ml": 0.26666666666666666,
+      "cnn": 0.29523809523809524
+    },
+    "n_models_wrong_histogram": {
+      "0": 11,
+      "1": 14,
+      "2": 29,
+      "3": 51
+    },
+    "fraction_exactly_one_wrong": 0.13333333333333333,
+    "fraction_all_wrong": 0.4857142857142857,
+    "oracle_accuracy": 0.5142857142857142,
+    "pairwise_agreement": {
+      "subspace__classical_ml": 0.3047619047619048,
+      "subspace__cnn": 0.38095238095238093,
+      "classical_ml__cnn": 0.45714285714285713
+    },
+    "pairwise_error_correlation": {
+      "subspace__classical_ml": 0.1762645521921945,
+      "subspace__cnn": 0.40496948561464696,
+      "classical_ml__cnn": 0.41233314887816924
+    }
+  },
+  "diagnostics_test": {
+    "n_samples": 210,
+    "model_names": [
+      "subspace",
+      "classical_ml",
+      "cnn"
+    ],
+    "accuracy_by_model": {
+      "subspace": 0.37142857142857144,
+      "classical_ml": 0.38571428571428573,
+      "cnn": 0.35714285714285715
+    },
+    "n_models_wrong_histogram": {
+      "0": 30,
+      "1": 41,
+      "2": 62,
+      "3": 77
+    },
+    "fraction_exactly_one_wrong": 0.19523809523809524,
+    "fraction_all_wrong": 0.36666666666666664,
+    "oracle_accuracy": 0.6333333333333333,
+    "pairwise_agreement": {
+      "subspace__classical_ml": 0.3523809523809524,
+      "subspace__cnn": 0.38095238095238093,
+      "classical_ml__cnn": 0.5
+    },
+    "pairwise_error_correlation": {
+      "subspace__classical_ml": 0.20072852514960762,
+      "subspace__cnn": 0.2908872369413701,
+      "classical_ml__cnn": 0.40979126648007846
+    }
+  },
+  "switching_class_champion": {
+    "0": "subspace",
+    "1": "subspace",
+    "2": "classical_ml",
+    "3": "cnn",
+    "4": "classical_ml",
+    "5": "subspace",
+    "6": "subspace"
+  },
+  "switching_champion_metric": {
+    "0": 0.13333333333333333,
+    "1": 0.2,
+    "2": 0.26666666666666666,
+    "3": 0.4666666666666667,
+    "4": 0.3333333333333333,
+    "5": 0.5333333333333333,
+    "6": 0.4666666666666667
+  },
+  "test_results": {
+    "subspace": {
+      "accuracy": 0.37142857142857144,
+      "macro_accuracy": 0.3714285714285714,
+      "per_class_accuracy": {
+        "0": 0.1,
+        "1": 0.3,
+        "2": 0.13333333333333333,
+        "3": 0.36666666666666664,
+        "4": 0.26666666666666666,
+        "5": 0.8,
+        "6": 0.6333333333333333
+      },
+      "predict_time_seconds": 1.282530399999814
+    },
+    "classical_ml": {
+      "accuracy": 0.38571428571428573,
+      "macro_accuracy": 0.3857142857142857,
+      "per_class_accuracy": {
+        "0": 0.26666666666666666,
+        "1": 0.3,
+        "2": 0.3,
+        "3": 0.3333333333333333,
+        "4": 0.36666666666666664,
+        "5": 0.6,
+        "6": 0.5333333333333333
+      },
+      "predict_time_seconds": 0.03351730000576936
+    },
+    "cnn": {
+      "accuracy": 0.35714285714285715,
+      "macro_accuracy": 0.35714285714285715,
+      "per_class_accuracy": {
+        "0": 0.13333333333333333,
+        "1": 0.16666666666666666,
+        "2": 0.26666666666666666,
+        "3": 0.5666666666666667,
+        "4": 0.36666666666666664,
+        "5": 0.43333333333333335,
+        "6": 0.5666666666666667
+      },
+      "predict_time_seconds": 0.08964190000551753
+    },
+    "voting": {
+      "accuracy": 0.3952380952380952,
+      "macro_accuracy": 0.3952380952380952,
+      "per_class_accuracy": {
+        "0": 0.1,
+        "1": 0.26666666666666666,
+        "2": 0.3,
+        "3": 0.6,
+        "4": 0.4,
+        "5": 0.5666666666666667,
+        "6": 0.5333333333333333
+      },
+      "predict_time_seconds": 1.4058202999876812
+    },
+    "stacking": {
+      "accuracy": 0.36666666666666664,
+      "macro_accuracy": 0.36666666666666664,
+      "per_class_accuracy": {
+        "0": 0.26666666666666666,
+        "1": 0.1,
+        "2": 0.16666666666666666,
+        "3": 0.36666666666666664,
+        "4": 0.5666666666666667,
+        "5": 0.4,
+        "6": 0.7
+      },
+      "predict_time_seconds": 1.4409995999885723
+    },
+    "stacking_balanced": {
+      "accuracy": 0.36666666666666664,
+      "macro_accuracy": 0.36666666666666664,
+      "per_class_accuracy": {
+        "0": 0.26666666666666666,
+        "1": 0.1,
+        "2": 0.16666666666666666,
+        "3": 0.36666666666666664,
+        "4": 0.5666666666666667,
+        "5": 0.4,
+        "6": 0.7
+      },
+      "predict_time_seconds": 1.426110400003381
+    },
+    "switching": {
+      "accuracy": 0.3333333333333333,
+      "macro_accuracy": 0.33333333333333337,
+      "per_class_accuracy": {
+        "0": 0.06666666666666667,
+        "1": 0.16666666666666666,
+        "2": 0.26666666666666666,
+        "3": 0.7333333333333333,
+        "4": 0.4666666666666667,
+        "5": 0.36666666666666664,
+        "6": 0.26666666666666666
+      },
+      "predict_time_seconds": 1.4233638000150677
+    }
+  },
+  "total_elapsed_seconds": 91.53852229999029
+}

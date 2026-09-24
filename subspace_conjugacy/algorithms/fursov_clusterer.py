@@ -132,6 +132,21 @@ class FursovClusterer:
         кластеризации. Черновик утверждает, что оба равноценны ("любое из
         этих подмножеств может использоваться"). Используется только если
         split_correlated_pairs=True.
+    early_stopping : {"relative_drop", "fixed_fraction"} or None, default=None
+        Критерий ранней остановки фазы B.2 (theory/article_plans/01_
+        iterativnyi_algoritm.txt) — прокидывается напрямую в
+        ConjugacyClusterGrowth (см. его docstring за полным описанием
+        обеих стратегий). Векторы, не успевшие присоединиться к моменту
+        остановки, получают label -1 (см. excluded_by_early_stopping_) —
+        по умолчанию выключено, рост идёт до исчерпания, как раньше.
+    early_stopping_threshold : float, default=0.1
+        Порог для early_stopping (см. ConjugacyClusterGrowth). Игнорируется,
+        если early_stopping is None.
+    store_growth_history : bool, default=False
+        Если True — сохраняет историю роста фазы B.2 (R и число
+        обусловленности (Y^T Y) на каждой итерации) в growth_history_.
+        Даёт заметный оверхед только при явном включении (см.
+        ConjugacyClusterGrowth.fit(..., store_history=...)).
 
     Attributes
     ----------
@@ -167,6 +182,21 @@ class FursovClusterer:
         CorrelatedPairSplitter (плюс непарный вектор при нечётном числе
         входных векторов), подмножество excluded_indices_. Пустой массив,
         если split_correlated_pairs=False.
+    excluded_by_early_stopping_ : np.ndarray or None
+        Индексы (в исходном X) векторов, оставшихся неразмеченными из-за
+        ранней остановки фазы B.2 (early_stopping). В отличие от
+        excluded_by_informativeness_/excluded_by_dependency_/
+        excluded_by_correlation_split_ — это НЕ подмножество
+        excluded_indices_: те исключаются ДО начала кластеризации
+        (фильтры 0a-0c), а ранняя остановка прерывает уже идущий рост B.2.
+        Пустой массив, если early_stopping is None либо критерий не
+        сработал.
+    growth_history_ : list[dict] or None
+        История роста фазы B.2 — см. ConjugacyClusterGrowth.growth_history_.
+        Заполняется, только если store_growth_history=True.
+    stopped_early_ : bool
+        True, если рост B.2 был прерван early_stopping до исчерпания
+        remaining.
     n_subclasses_ : int or None
         Количество подклассов (равно n_subclasses).
     is_fitted_ : bool
@@ -203,6 +233,9 @@ class FursovClusterer:
         informativeness_min_fraction: float = DEFAULT_MIN_FRACTION_OF_MEAN,
         split_correlated_pairs: bool = False,
         correlated_pairs_subset: Literal["a", "b"] = "a",
+        early_stopping: Optional[Literal["relative_drop", "fixed_fraction"]] = None,
+        early_stopping_threshold: float = 0.1,
+        store_growth_history: bool = False,
     ) -> None:
         if n_subclasses < 2:
             raise ValueError(f"n_subclasses должен быть >= 2, получено {n_subclasses}")
@@ -234,6 +267,18 @@ class FursovClusterer:
                 f"{correlated_pairs_subset!r}"
             )
 
+        if early_stopping is not None and early_stopping not in ("relative_drop", "fixed_fraction"):
+            raise ValueError(
+                f"early_stopping должен быть None, 'relative_drop' или "
+                f"'fixed_fraction', получено {early_stopping!r}."
+            )
+
+        if early_stopping is not None and not (0.0 < early_stopping_threshold <= 1.0):
+            raise ValueError(
+                f"early_stopping_threshold должен быть в (0, 1], получено "
+                f"{early_stopping_threshold}."
+            )
+
         self.n_subclasses = n_subclasses
         self.freeze_basis_at = freeze_basis_at
         self.growth_strategy = growth_strategy
@@ -245,6 +290,9 @@ class FursovClusterer:
         self.informativeness_min_fraction = informativeness_min_fraction
         self.split_correlated_pairs = split_correlated_pairs
         self.correlated_pairs_subset = correlated_pairs_subset
+        self.early_stopping = early_stopping
+        self.early_stopping_threshold = early_stopping_threshold
+        self.store_growth_history = store_growth_history
 
         # Результаты fit()
         self.subspaces_: Optional[List[np.ndarray]] = None
@@ -256,6 +304,9 @@ class FursovClusterer:
         self.excluded_by_informativeness_: Optional[np.ndarray] = None
         self.excluded_by_dependency_: Optional[np.ndarray] = None
         self.excluded_by_correlation_split_: Optional[np.ndarray] = None
+        self.excluded_by_early_stopping_: Optional[np.ndarray] = None
+        self.growth_history_: Optional[List[dict]] = None
+        self.stopped_early_: bool = False
         self.n_subclasses_: Optional[int] = None
         self.is_fitted_: bool = False
 
@@ -430,8 +481,12 @@ class FursovClusterer:
             freeze_basis_at=self.freeze_basis_at,
             strategy=self.growth_strategy,
             reg_param=self.reg_param,
+            early_stopping=self.early_stopping,
+            early_stopping_threshold=self.early_stopping_threshold,
         )
-        self._cluster_growth.fit(X_for_clustering, pairs_local)
+        self._cluster_growth.fit(
+            X_for_clustering, pairs_local, store_history=self.store_growth_history
+        )
         logger.debug("FursovClusterer.fit: B.2 заняла %.3fs.", time.perf_counter() - phase_start)
 
         # Сохраняем результаты, переводя индексы из локального пространства
@@ -452,16 +507,23 @@ class FursovClusterer:
         self.excluded_by_informativeness_ = excluded_by_informativeness
         self.excluded_by_dependency_ = excluded_by_dependency
         self.excluded_by_correlation_split_ = excluded_by_correlation_split
+        self.excluded_by_early_stopping_ = kept_idx[
+            self._cluster_growth.excluded_by_early_stopping_
+        ]
+        self.growth_history_ = self._cluster_growth.growth_history_
+        self.stopped_early_ = self._cluster_growth.stopped_early_
         self.n_subclasses_ = self.n_subclasses
         self.is_fitted_ = True
 
         logger.info(
             "FursovClusterer.fit: готово за %.3fs, размеры подклассов=%s "
             "(исключено всего: %d; малоинформативных: %d; почти линейно "
-            "зависимых: %d; отсеяно разбиением на похожие пары: %d).",
+            "зависимых: %d; отсеяно разбиением на похожие пары: %d; не "
+            "распределено ранней остановкой B.2: %d).",
             time.perf_counter() - fit_start, self.get_subclass_sizes().tolist(),
             len(excluded_idx), len(excluded_by_informativeness),
             len(excluded_by_dependency), len(excluded_by_correlation_split),
+            len(self.excluded_by_early_stopping_),
         )
 
         return self

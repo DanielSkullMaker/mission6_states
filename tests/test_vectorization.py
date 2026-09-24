@@ -8,6 +8,7 @@ import tempfile
 from subspace_conjugacy.features.vectorization import (
     vectorize_image,
     vectorize_batch,
+    vectorize_batch_multi,
     load_and_vectorize,
     load_and_vectorize_batch,
     _ensure_grayscale,
@@ -193,6 +194,42 @@ class TestEnsureGrayscale:
         # Ожидаемое значение: 0.299*100 + 0.587*50 + 0.114*200
         expected = int(0.299 * 100 + 0.587 * 50 + 0.114 * 200)
         assert result[0, 0] == expected
+
+
+class TestVectorizeBatchMulti:
+    """Тесты vectorize_batch_multi (статья 3: гибридизация представлений)."""
+
+    def test_matches_separate_calls(self):
+        """Результат должен совпадать с отдельными вызовами vectorize_batch."""
+        imgs = [np.random.randint(0, 256, (32, 32), dtype=np.uint8) for _ in range(5)]
+        X_multi = vectorize_batch_multi(imgs, methods=("horizontal", "vertical"))
+        X_hor = vectorize_batch(imgs, method="horizontal")
+        X_ver = vectorize_batch(imgs, method="vertical")
+
+        assert set(X_multi.keys()) == {"horizontal", "vertical"}
+        assert np.array_equal(X_multi["horizontal"], X_hor)
+        assert np.array_equal(X_multi["vertical"], X_ver)
+
+    def test_default_methods_are_horizontal_and_vertical(self):
+        imgs = [np.random.randint(0, 256, (16, 16), dtype=np.uint8) for _ in range(3)]
+        X_multi = vectorize_batch_multi(imgs)
+        assert set(X_multi.keys()) == {"horizontal", "vertical"}
+
+    def test_single_method_subset(self):
+        imgs = [np.random.randint(0, 256, (16, 16), dtype=np.uint8) for _ in range(3)]
+        X_multi = vectorize_batch_multi(imgs, methods=("horizontal",))
+        assert set(X_multi.keys()) == {"horizontal"}
+
+    def test_invalid_method_raises_error(self):
+        imgs = [np.random.randint(0, 256, (16, 16), dtype=np.uint8) for _ in range(2)]
+        with pytest.raises(ValueError, match="Unknown vectorization method"):
+            vectorize_batch_multi(imgs, methods=("diagonal",))
+
+    def test_ndarray_input(self):
+        imgs = np.random.randint(0, 256, (4, 16, 16), dtype=np.uint8)
+        X_multi = vectorize_batch_multi(imgs)
+        assert X_multi["horizontal"].shape == (4, 256)
+        assert X_multi["vertical"].shape == (4, 256)
 
 
 @pytest.mark.theory

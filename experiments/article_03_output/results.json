@@ -1,0 +1,323 @@
+{
+  "config": {
+    "dataset": "МРТ проекта, datasets/{class}_centered/",
+    "classes": [
+      "glioma",
+      "meningioma",
+      "pituitary"
+    ],
+    "class_labels_ru": {
+      "glioma": "глиома",
+      "meningioma": "менингиома",
+      "pituitary": "аденома гипофиза"
+    },
+    "n_per_class": 200,
+    "test_fraction": 0.2,
+    "n_train_total": 480,
+    "n_test_total": 120,
+    "img_size": 256,
+    "n_features_horizontal": 65536,
+    "n_features_concatenation": 131072,
+    "growth": "full (freeze_basis_at=None, equalize=False)",
+    "random_seed": 42,
+    "n_subclasses": 3,
+    "growth_strategy": "default",
+    "filter_dependent": false,
+    "split_correlated_pairs": false,
+    "correlated_pairs_subset": "a"
+  },
+  "tuning": {
+    "search_n_per_class": 80,
+    "best_config": {
+      "phase": 1,
+      "n_subclasses": 3,
+      "growth_strategy": "default",
+      "filter_dependent": false,
+      "split_correlated_pairs": false,
+      "correlated_pairs_subset": "a",
+      "val_accuracy": 0.8625,
+      "elapsed_seconds": 62.070005999994464
+    },
+    "candidates": [
+      {
+        "phase": 1,
+        "n_subclasses": 2,
+        "growth_strategy": "default",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.6958333333333333,
+        "elapsed_seconds": 61.87188109999988
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 2,
+        "growth_strategy": "master",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.5916666666666667,
+        "elapsed_seconds": 63.35525059999782
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 3,
+        "growth_strategy": "default",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.8625,
+        "elapsed_seconds": 62.070005999994464
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 3,
+        "growth_strategy": "master",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.7625,
+        "elapsed_seconds": 60.05021190000116
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 4,
+        "growth_strategy": "default",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.8625,
+        "elapsed_seconds": 59.96686319998116
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 4,
+        "growth_strategy": "master",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.35,
+        "elapsed_seconds": 59.220837000000756
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 5,
+        "growth_strategy": "default",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.425,
+        "elapsed_seconds": 55.11109649998252
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 5,
+        "growth_strategy": "master",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.65,
+        "elapsed_seconds": 56.286808000004385
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 6,
+        "growth_strategy": "default",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.6125,
+        "elapsed_seconds": 51.785444200009806
+      },
+      {
+        "phase": 1,
+        "n_subclasses": 6,
+        "growth_strategy": "master",
+        "filter_dependent": false,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a",
+        "val_accuracy": 0.55,
+        "elapsed_seconds": 54.707909399992786
+      },
+      {
+        "phase": 2,
+        "n_subclasses": 3,
+        "growth_strategy": "default",
+        "val_accuracy": 0.8625,
+        "elapsed_seconds": 61.62666890001856,
+        "filter_dependent": true,
+        "split_correlated_pairs": false,
+        "correlated_pairs_subset": "a"
+      },
+      {
+        "phase": 2,
+        "n_subclasses": 3,
+        "growth_strategy": "default",
+        "val_accuracy": 0.8,
+        "elapsed_seconds": 7.2050135000026785,
+        "filter_dependent": false,
+        "split_correlated_pairs": true,
+        "correlated_pairs_subset": "a"
+      },
+      {
+        "phase": 2,
+        "n_subclasses": 3,
+        "growth_strategy": "default",
+        "val_accuracy": 0.5875,
+        "elapsed_seconds": 7.205166699975962,
+        "filter_dependent": false,
+        "split_correlated_pairs": true,
+        "correlated_pairs_subset": "b"
+      }
+    ]
+  },
+  "basis_sizes": {
+    "horizontal": {
+      "glioma": [
+        2,
+        2,
+        156
+      ],
+      "meningioma": [
+        2,
+        155,
+        3
+      ],
+      "pituitary": [
+        136,
+        2,
+        22
+      ]
+    },
+    "vertical": {
+      "glioma": [
+        2,
+        2,
+        156
+      ],
+      "meningioma": [
+        2,
+        155,
+        3
+      ],
+      "pituitary": [
+        136,
+        2,
+        22
+      ]
+    },
+    "concatenation": {
+      "glioma": [
+        2,
+        2,
+        156
+      ],
+      "meningioma": [
+        2,
+        155,
+        3
+      ],
+      "pituitary": [
+        136,
+        2,
+        22
+      ]
+    }
+  },
+  "representation_demo": {
+    "demo_class": "glioma",
+    "demo_class_label": "глиома",
+    "n_demo": 5,
+    "r_horizontal_values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "r_vertical_values": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  },
+  "model_order": [
+    "horizontal",
+    "vertical",
+    "concatenation",
+    "fusion_mean",
+    "fusion_max",
+    "late_vote"
+  ],
+  "test_results": {
+    "horizontal": {
+      "accuracy": 0.5916666666666667,
+      "macro_accuracy": 0.5916666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.675,
+        "meningioma": 0.5,
+        "pituitary": 0.6
+      },
+      "fit_time_seconds": 507.97274120000657,
+      "predict_time_seconds": 0.42490620000171475
+    },
+    "vertical": {
+      "accuracy": 0.5916666666666667,
+      "macro_accuracy": 0.5916666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.675,
+        "meningioma": 0.5,
+        "pituitary": 0.6
+      },
+      "fit_time_seconds": 506.6941768999968,
+      "predict_time_seconds": 0.458796999999322
+    },
+    "concatenation": {
+      "accuracy": 0.5916666666666667,
+      "macro_accuracy": 0.5916666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.675,
+        "meningioma": 0.5,
+        "pituitary": 0.6
+      },
+      "fit_time_seconds": 975.4955985000124,
+      "predict_time_seconds": 0.8412690999975894
+    },
+    "fusion_mean": {
+      "accuracy": 0.5916666666666667,
+      "macro_accuracy": 0.5916666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.675,
+        "meningioma": 0.5,
+        "pituitary": 0.6
+      },
+      "fit_time_seconds": 0.0,
+      "predict_time_seconds": 0.8840675999817904
+    },
+    "fusion_max": {
+      "accuracy": 0.5916666666666667,
+      "macro_accuracy": 0.5916666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.675,
+        "meningioma": 0.5,
+        "pituitary": 0.6
+      },
+      "fit_time_seconds": 0.0,
+      "predict_time_seconds": 0.8746771999867633
+    },
+    "late_vote": {
+      "accuracy": 0.5916666666666667,
+      "macro_accuracy": 0.5916666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.675,
+        "meningioma": 0.5,
+        "pituitary": 0.6
+      },
+      "fit_time_seconds": 0.0,
+      "predict_time_seconds": 0.868371600023238
+    }
+  },
+  "total_elapsed_seconds": 2656.018269399996
+}

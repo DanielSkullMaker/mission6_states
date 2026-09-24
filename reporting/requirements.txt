@@ -1,0 +1,5 @@
+# Зависимости reporting/word_report.py — НЕ входят в зависимости
+# subspace_conjugacy (pyproject.toml): это отдельный инструмент оформления
+# результатов экспериментов (main.py), а не часть библиотеки метода.
+python-docx>=1.1.0
+matplotlib>=3.8.0

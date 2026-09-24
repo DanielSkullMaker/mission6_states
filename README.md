@@ -152,6 +152,36 @@ confidence = clf.predict_confidence_ratio(X[:5])   # NB8: best_R/mean(others)-1
 python main.py                              # = --experiment article (по умолчанию)
 python main.py --experiment article         # эксперименты 2-3 опубликованной статьи (Kaggle archive/)
 python main.py --experiment draft-method    # метод из черновика vs классический ML vs CNN (datasets/*_centered/)
+python main.py --experiment mnist           # тот же эксперимент, что и draft-method, но на MNIST
+python main.py --experiment tuned --dataset mri     # честный подбор гиперпараметров + кривая по объёму данных (МРТ)
+python main.py --experiment tuned --dataset mnist   # то же самое на MNIST
+```
+
+`--experiment tuned` — честный (без подгонки под желаемый результат) подбор
+гиперпараметров ВСЕХ трёх подходов через holdout-валидацию (тест не
+участвует в подборе, одна и та же методология для всех трёх сторон), затем
+**кривая эффективности по объёму обучающих данных** (10/20/30/40/60/80/120/160
+на класс) — прямая проверка тезиса `theory/` о том, что метод сопряжённости
+работоспособен на малых выборках, тогда как CNN/классическому ML нужно
+больше данных. Результат публикуется как есть — метод может как выиграть,
+так и проиграть на любой конкретной точке; см. `refactoring_plan.txt`,
+раздел 11 для готовых цифр.
+
+### Подробный отчёт в Word
+
+`reporting/word_report.py` — модуль **вне** пакета `subspace_conjugacy`
+(отдельные зависимости, не тянутся библиотекой), генерирует подробный
+`.docx`-отчёт по JSON-результатам `--experiment tuned`: методология, ВСЕ
+опробованные конфигурации подбора гиперпараметров (не только победитель),
+таблицы и графики кривой эффективности, честные выводы, вычисленные из
+фактических чисел отчёта (не захардкожены).
+
+```bash
+pip install -r reporting/requirements.txt   # python-docx, matplotlib — не входят в extras библиотеки
+python reporting/word_report.py \
+    --report artifacts/tuned_comparison_mri_report.json \
+    --report artifacts/tuned_comparison_mnist_report.json \
+    --output artifacts/tuned_comparison_report.docx
 ```
 
 `--experiment draft-method` сравнивает на `datasets/{class}_centered/`:
@@ -159,9 +189,13 @@ python main.py --experiment draft-method    # метод из черновика
 отдельные фильтры статьи, метод из черновика `theory/Макет новой статьи.docx`
 в разных комбинациях, перебор `n_subclasses`), классические ML-модели sklearn
 (логрегрессия/линейный SVM/random forest/kNN поверх PCA) и несколько
-намеренно упрощённых CNN (PyTorch). Требует `pip install torch` (extras
-`cnn-experiment` в `pyproject.toml`, не входит в основные зависимости
-библиотеки). Подробности и обоснование решений — docstring `main.py` и
+намеренно упрощённых CNN (PyTorch). `--experiment mnist` — та же сетка
+конфигураций и та же сравнительная таблица, но на MNIST (10 классов цифр,
+28×28 grayscale, скачивается через `sklearn.datasets.fetch_openml` при первом
+запуске и кэшируется локально) — проверка, обобщаются ли выводы на другой
+домен. Оба эксперимента требуют `pip install torch` (extras `cnn-experiment`
+в `pyproject.toml`, не входит в основные зависимости библиотеки). Подробности,
+обоснование решений и результаты обоих прогонов — docstring `main.py` и
 `refactoring_plan.txt`, раздел 11.
 
 ### Кластеризация одного класса (канонический алгоритм A+B напрямую)

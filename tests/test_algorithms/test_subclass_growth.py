@@ -448,5 +448,212 @@ class TestConjugacyClusterGrowthProperties:
         assert growth.is_fitted_
 
 
+@pytest.mark.theory
+class TestConjugacyClusterGrowthHistory:
+    """Тесты сбора истории роста (store_history) — theory/article_plans/01_
+    iterativnyi_algoritm.txt, задачи 2-3 (кривая R(k), обусловленность
+    матрицы Грама)."""
+
+    def test_history_none_by_default(self):
+        """Без store_history=True история не собирается (нет оверхеда)."""
+        np.random.seed(42)
+        X = np.random.randn(40, 32)
+        pairs = np.array([[0, 1], [10, 11], [20, 21], [30, 31]])
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs)
+
+        assert growth.growth_history_ is None
+
+    def test_history_has_one_record_per_assigned_vector(self):
+        """С store_history=True — по записи на каждый присоединённый вектор."""
+        np.random.seed(42)
+        X = np.random.randn(40, 32)
+        pairs = np.array([[0, 1], [10, 11], [20, 21], [30, 31]])
+        n_to_assign = X.shape[0] - len(pairs) * 2
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs, store_history=True)
+
+        assert len(growth.growth_history_) == n_to_assign
+
+    def test_history_record_fields(self):
+        """Каждая запись содержит ожидаемые поля с корректными типами."""
+        np.random.seed(42)
+        X = np.random.randn(30, 16)
+        pairs = np.array([[0, 1], [10, 11], [20, 21]])
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs, store_history=True)
+
+        record = growth.growth_history_[0]
+        expected_keys = {
+            "iteration", "vector_index", "subclass_index", "r_value",
+            "basis_size", "gram_condition_number", "n_remaining_after",
+        }
+        assert set(record.keys()) == expected_keys
+        assert record["iteration"] == 1
+        assert 0.0 <= record["r_value"] <= 1.0
+        assert record["basis_size"] >= 3  # 2 из пары + 1 новый
+        assert record["gram_condition_number"] >= 1.0
+
+    def test_basis_size_increases_monotonically_per_subclass(self):
+        """basis_size растёт строго на 1 при каждом присоединении к подклассу."""
+        np.random.seed(42)
+        X = np.random.randn(50, 32)
+        pairs = np.array([[0, 1], [15, 16], [30, 31]])
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs, store_history=True)
+
+        last_size = {s: 2 for s in range(3)}
+        for record in growth.growth_history_:
+            s = record["subclass_index"]
+            assert record["basis_size"] == last_size[s] + 1
+            last_size[s] = record["basis_size"]
+
+    def test_get_growth_curve_matches_history(self):
+        """get_growth_curve() возвращает R-значения в порядке истории."""
+        np.random.seed(42)
+        X = np.random.randn(40, 32)
+        pairs = np.array([[0, 1], [10, 11], [20, 21], [30, 31]])
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs, store_history=True)
+
+        curve = growth.get_growth_curve()
+        expected = np.array([r["r_value"] for r in growth.growth_history_])
+        assert np.array_equal(curve, expected)
+
+    def test_get_growth_curve_without_history_raises(self):
+        """get_growth_curve() без store_history=True должен упасть с понятной ошибкой."""
+        np.random.seed(42)
+        X = np.random.randn(30, 16)
+        pairs = np.array([[0, 1], [10, 11], [20, 21]])
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs)  # store_history по умолчанию False
+
+        with pytest.raises(RuntimeError, match="История роста не сохранена"):
+            growth.get_growth_curve()
+
+
+@pytest.mark.theory
+class TestConjugacyClusterGrowthEarlyStopping:
+    """Тесты критерия ранней остановки — theory/article_plans/01_
+    iterativnyi_algoritm.txt, задача 4."""
+
+    def test_early_stopping_none_is_default_behaviour(self):
+        """С early_stopping=None рост идёт до конца, как раньше."""
+        np.random.seed(42)
+        X = np.random.randn(40, 32)
+        pairs = np.array([[0, 1], [10, 11], [20, 21], [30, 31]])
+
+        growth = ConjugacyClusterGrowth()
+        growth.fit(X, pairs)
+
+        assert growth.stopped_early_ is False
+        assert len(growth.excluded_by_early_stopping_) == 0
+        assert not np.any(growth.labels_ == -1)
+
+    def test_fixed_fraction_stops_early_and_leaves_unassigned(self):
+        """fixed_fraction должен остановить рост до полного распределения."""
+        np.random.seed(42)
+        X = np.random.randn(60, 32)
+        pairs = np.array([[0, 1], [15, 16], [30, 31], [45, 46]])
+        n_to_assign = X.shape[0] - len(pairs) * 2
+
+        growth = ConjugacyClusterGrowth(
+            early_stopping="fixed_fraction", early_stopping_threshold=0.3
+        )
+        growth.fit(X, pairs)
+
+        assert growth.stopped_early_ is True
+        assigned = int(round(0.3 * n_to_assign))
+        assert len(growth.excluded_by_early_stopping_) == n_to_assign - assigned
+        assert np.any(growth.labels_ == -1)
+        assert set(growth.excluded_by_early_stopping_) == set(
+            np.where(growth.labels_ == -1)[0]
+        )
+
+    def test_fixed_fraction_one_means_full_growth(self):
+        """threshold=1.0 для fixed_fraction эквивалентен полному росту."""
+        np.random.seed(42)
+        X = np.random.randn(40, 32)
+        pairs = np.array([[0, 1], [10, 11], [20, 21], [30, 31]])
+
+        growth = ConjugacyClusterGrowth(
+            early_stopping="fixed_fraction", early_stopping_threshold=1.0
+        )
+        growth.fit(X, pairs)
+
+        assert growth.stopped_early_ is False
+        assert len(growth.excluded_by_early_stopping_) == 0
+
+    def test_relative_drop_never_stops_on_first_iteration(self):
+        """relative_drop не может остановить рост на самой первой итерации
+        (нет ещё точки отсчёта R_first)."""
+        np.random.seed(42)
+        X = np.random.randn(10, 8)
+        pairs = np.array([[0, 1]])  # 1 подкласс, 8 векторов на распределение
+
+        growth = ConjugacyClusterGrowth(
+            early_stopping="relative_drop", early_stopping_threshold=0.999,
+        )
+        growth.fit(X, pairs)
+
+        # Даже с почти невыполнимо строгим порогом должен присоединиться
+        # хотя бы один вектор после первой (некритериальной) итерации.
+        assert growth.get_subclass_sizes()[0] >= 3
+
+    def test_get_subclass_sizes_ignores_unassigned(self):
+        """get_subclass_sizes() не должен учитывать векторы с меткой -1."""
+        np.random.seed(42)
+        X = np.random.randn(60, 32)
+        pairs = np.array([[0, 1], [15, 16], [30, 31], [45, 46]])
+
+        growth = ConjugacyClusterGrowth(
+            early_stopping="fixed_fraction", early_stopping_threshold=0.2
+        )
+        growth.fit(X, pairs)
+
+        sizes = growth.get_subclass_sizes()
+        assert sizes.sum() == np.sum(growth.labels_ >= 0)
+        assert sizes.sum() < X.shape[0]
+
+    def test_raises_error_with_invalid_early_stopping(self):
+        """Должна быть ошибка при некорректном early_stopping."""
+        with pytest.raises(ValueError, match="early_stopping должен быть"):
+            ConjugacyClusterGrowth(early_stopping="invalid")
+
+    def test_raises_error_with_invalid_early_stopping_threshold(self):
+        """Должна быть ошибка при threshold вне (0, 1]."""
+        with pytest.raises(ValueError, match="early_stopping_threshold должен быть"):
+            ConjugacyClusterGrowth(
+                early_stopping="fixed_fraction", early_stopping_threshold=0.0
+            )
+        with pytest.raises(ValueError, match="early_stopping_threshold должен быть"):
+            ConjugacyClusterGrowth(
+                early_stopping="fixed_fraction", early_stopping_threshold=1.5
+            )
+
+    def test_predict_still_works_after_early_stopping(self):
+        """predict() на новых данных должен работать даже если обучение
+        остановилось раньше (базисы всё равно валидны)."""
+        np.random.seed(42)
+        X_train = np.random.randn(60, 32)
+        pairs = np.array([[0, 1], [15, 16], [30, 31], [45, 46]])
+
+        growth = ConjugacyClusterGrowth(
+            early_stopping="fixed_fraction", early_stopping_threshold=0.2
+        )
+        growth.fit(X_train, pairs)
+
+        X_test = np.random.randn(10, 32)
+        pred = growth.predict(X_test)
+        assert len(pred) == 10
+        assert all(0 <= l < 4 for l in pred)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-m", "theory"])
