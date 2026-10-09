@@ -10,7 +10,7 @@ import os
 import pickle
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -140,18 +140,22 @@ def import_subspaces_npz(filepath: Union[str, Path]) -> Dict[str, List[np.ndarra
         raise FileNotFoundError(f"Архив подпространств не найден: '{path}'.")
 
     data = np.load(path)
-    subspaces: Dict[str, List[np.ndarray]] = {}
 
-    for key in sorted(data.files):
+    # Сортировка по имени ключа лексикографична ("subspace_glioma_10" < "subspace_glioma_2"),
+    # поэтому индекс подкласса парсится в int и сортируется отдельно, иначе при
+    # n_subclasses >= 10 базисы молча переставляются местами.
+    parsed: List[Tuple[str, int, np.ndarray]] = []
+    for key in data.files:
         # Ключи формируются как 'subspace_{class}_{subclass_idx}'
         parts = key.split("_")
         if len(parts) >= 3:
             cls_name = "_".join(parts[1:-1])
-            Y_s = data[key]
+            idx = int(parts[-1])
+            parsed.append((cls_name, idx, data[key]))
 
-            if cls_name not in subspaces:
-                subspaces[cls_name] = []
-            subspaces[cls_name].append(Y_s)
+    subspaces: Dict[str, List[np.ndarray]] = {}
+    for cls_name, _idx, Y_s in sorted(parsed, key=lambda item: (item[0], item[1])):
+        subspaces.setdefault(cls_name, []).append(Y_s)
 
     logger.info(
         "import_subspaces_npz: загружено %d классов из %s.", len(subspaces), path,

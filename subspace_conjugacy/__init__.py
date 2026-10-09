@@ -53,6 +53,12 @@ from subspace_conjugacy.algorithms.informativeness_filter import (
     DEFAULT_MIN_FRACTION_OF_MEAN,
     LowInformativenessFilter,
 )
+from subspace_conjugacy.algorithms.correlation_core_selector import CorrelationCoreSelector
+from subspace_conjugacy.algorithms.recursive_bisection import RecursiveBisectionClusterer
+from subspace_conjugacy.algorithms.subclass_growth_parallel import ParallelConjugacyClusterGrowth
+from subspace_conjugacy.algorithms.fursov_clusterer_parallel import ParallelFursovClusterer
+from subspace_conjugacy.model_selection.parallel_classifier import fit_classifier_parallel
+from subspace_conjugacy.features.vectorization_parallel import load_and_vectorize_batch_parallel
 from subspace_conjugacy.algorithms.subclass_export import equalize_subspace_bases
 
 # Pipeline orchestrator (Фаза 6)
@@ -81,12 +87,25 @@ from subspace_conjugacy.features.extraction import (
     extract_all_classes,
     extract_training_data,
 )
+from subspace_conjugacy.features.smoothing import smooth_adjacent_vectors
 
 # Evaluation (Phase C, NB8)
 from subspace_conjugacy.evaluation.metrics import (
+    build_confusion_matrix,
     confidence_summary,
+    confusion_matrix_to_table,
     evaluate_classifier,
     per_class_accuracy,
+    plot_confusion_matrix,
+)
+
+# Методология статьи (Table I/II/III, Fig. 5/7) — evaluation/paper_methodology.py
+from subspace_conjugacy.evaluation.paper_methodology import (
+    DEFAULT_N_SUBCLASSES_GRID,
+    compare_informativeness_filter,
+    find_best_n_subclasses,
+    paired_correlation_split,
+    paper_train_test_split,
 )
 
 # IO and persistence
@@ -155,6 +174,12 @@ __all__ = [
     "LowInformativenessFilter",
     "DEFAULT_BRIGHTNESS_THRESHOLD",
     "DEFAULT_MIN_FRACTION_OF_MEAN",
+    "CorrelationCoreSelector",
+    "RecursiveBisectionClusterer",
+    "ParallelConjugacyClusterGrowth",
+    "ParallelFursovClusterer",
+    "fit_classifier_parallel",
+    "load_and_vectorize_batch_parallel",
     "equalize_subspace_bases",
     # Pipeline orchestrator
     "FursovPipeline",
@@ -173,10 +198,20 @@ __all__ = [
     "extract_class_vectors",
     "extract_all_classes",
     "extract_training_data",
+    "smooth_adjacent_vectors",
     # Evaluation
     "confidence_summary",
     "evaluate_classifier",
     "per_class_accuracy",
+    "build_confusion_matrix",
+    "confusion_matrix_to_table",
+    "plot_confusion_matrix",
+    # Методология статьи
+    "paper_train_test_split",
+    "find_best_n_subclasses",
+    "compare_informativeness_filter",
+    "paired_correlation_split",
+    "DEFAULT_N_SUBCLASSES_GRID",
     # IO - persistence
     "save_model",
     "load_model",

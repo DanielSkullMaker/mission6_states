@@ -1,0 +1,23 @@
+{
+  "min_brain_fraction": 0.08,
+  "n_slices_v2": 4330,
+  "test_class_balance": {
+    "tumor": 521,
+    "no_tumor": 339
+  },
+  "search_val_accuracy": 0.6481,
+  "search_fit_seconds": 86.4,
+  "final_fit_seconds": 85.8,
+  "final_accuracy": 0.6070,
+  "final_accuracy_smoothed": 0.6058,
+  "final_per_class_accuracy": {
+    "no_tumor": 0.7020648967551623,
+    "tumor": 0.54510556621881
+  },
+  "final_per_class_accuracy_smoothed": {
+    "no_tumor": 0.696165191740413,
+    "tumor": 0.5470249520153551
+  },
+  "v1_baseline_accuracy": 0.6447,
+  "v1_baseline_accuracy_smoothed": 0.6563
+}

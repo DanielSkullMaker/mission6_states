@@ -9,12 +9,19 @@ NB8 (8_Fursov_classification.ipynb, cell 8) считает точность вр
 """
 
 import logging
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 logger = logging.getLogger(__name__)
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
+ConfusionNormalize = Literal["true", "pred", "all"]
 
 
 def per_class_accuracy(
@@ -108,6 +115,199 @@ def evaluate_classifier(
         report["n_samples"], report["accuracy"], list(labels_arr),
     )
     return report
+
+
+def build_confusion_matrix(
+    y_true: Sequence[Any],
+    y_pred: Sequence[Any],
+    labels: Optional[Sequence[Any]] = None,
+    normalize: Optional[ConfusionNormalize] = None,
+) -> Dict[str, Any]:
+    """Строит матрицу ошибок как самостоятельный, переиспользуемый отчёт.
+
+    В отличие от ``evaluate_classifier`` (где матрица ошибок — один из
+    нескольких показателей общего отчёта, всегда в сырых счётчиках), эта
+    функция — лёгкий самостоятельный вызов для случаев, когда нужна только
+    матрица, опционально нормализованная — например, для построения
+    таблицы/графика в отчёте (см. ``confusion_matrix_to_table``,
+    ``plot_confusion_matrix``).
+
+    Parameters
+    ----------
+    y_true : Sequence[Any]
+        Истинные метки классов (M,).
+    y_pred : Sequence[Any]
+        Предсказанные метки классов (M,).
+    labels : Sequence[Any], optional
+        Порядок классов в матрице. Если None — отсортированные уникальные
+        значения y_true.
+    normalize : {"true", "pred", "all"}, optional
+        "true" — нормализация по строкам (полнота/recall на класс, сумма
+        строки = 1); "pred" — нормализация по столбцам (точность/precision
+        на класс, сумма столбца = 1); "all" — нормализация на общее число
+        объектов (сумма всей матрицы = 1); None (по умолчанию) — сырые
+        счётчики.
+
+    Returns
+    -------
+    result : Dict[str, Any]
+        Словарь с ключами:
+        - "matrix": np.ndarray (n_classes, n_classes)
+        - "labels": np.ndarray меток в порядке строк/столбцов matrix
+        - "normalize": переданное значение normalize (для удобства downstream)
+
+    Examples
+    --------
+    >>> y_true = ["glioma", "glioma", "meningioma"]
+    >>> y_pred = ["glioma", "meningioma", "meningioma"]
+    >>> result = build_confusion_matrix(y_true, y_pred)
+    >>> result["matrix"].shape
+    (2, 2)
+    """
+    y_true_arr = np.asarray(y_true)
+    y_pred_arr = np.asarray(y_pred)
+    labels_arr = np.unique(y_true_arr) if labels is None else np.asarray(labels)
+
+    matrix = confusion_matrix(
+        y_true_arr, y_pred_arr, labels=labels_arr, normalize=normalize,
+    )
+    logger.debug(
+        "build_confusion_matrix: %d классов, normalize=%s.",
+        len(labels_arr), normalize,
+    )
+    return {"matrix": matrix, "labels": labels_arr, "normalize": normalize}
+
+
+def confusion_matrix_to_table(
+    matrix: np.ndarray,
+    labels: Sequence[Any],
+    corner_label: str = "Истина \\ Предсказано",
+    value_format: Optional[str] = None,
+) -> Tuple[List[str], List[List[Any]]]:
+    """Преобразует матрицу ошибок в заголовок + строки для табличного отчёта.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Матрица ошибок (n_classes, n_classes), как из
+        ``build_confusion_matrix``/``evaluate_classifier``.
+    labels : Sequence[Any]
+        Метки классов в порядке строк/столбцов matrix.
+    corner_label : str, default="Истина \\ Предсказано"
+        Подпись левой верхней ячейки заголовка.
+    value_format : str, optional
+        Python format-спецификатор для значений ячеек (например, ``".1%"``
+        для нормализованной матрицы). Если None — значения приводятся к
+        ``int`` для сырых счётчиков (float без дробной части) или
+        оставляются как есть иначе.
+
+    Returns
+    -------
+    header : List[str]
+        Первая строка таблицы: ``[corner_label, *labels]``.
+    rows : List[List[Any]]
+        По одной строке на класс: ``[label, *значения_строки]``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> header, rows = confusion_matrix_to_table(
+    ...     np.array([[8, 2], [1, 9]]), ["glioma", "meningioma"],
+    ... )
+    >>> header
+    ['Истина \\\\ Предсказано', 'glioma', 'meningioma']
+    >>> rows[0]
+    ['glioma', 8, 2]
+    """
+    matrix_arr = np.asarray(matrix)
+
+    def _fmt(value: Any) -> Any:
+        if value_format is not None:
+            return format(value, value_format)
+        if isinstance(value, (float, np.floating)) and float(value).is_integer():
+            return int(value)
+        return value
+
+    header = [corner_label] + [str(label) for label in labels]
+    rows = [
+        [str(label)] + [_fmt(matrix_arr[i, j]) for j in range(matrix_arr.shape[1])]
+        for i, label in enumerate(labels)
+    ]
+    return header, rows
+
+
+def plot_confusion_matrix(
+    matrix: np.ndarray,
+    labels: Sequence[Any],
+    ax: Optional["plt.Axes"] = None,
+    cmap: str = "Blues",
+    title: Optional[str] = None,
+    value_format: Optional[str] = None,
+) -> "plt.Axes":
+    """Рисует матрицу ошибок в виде тепловой карты (требует matplotlib).
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Матрица ошибок (n_classes, n_classes), как из
+        ``build_confusion_matrix``/``evaluate_classifier``.
+    labels : Sequence[Any]
+        Метки классов в порядке строк/столбцов matrix.
+    ax : matplotlib.axes.Axes, optional
+        Оси для отрисовки. Если None — создаются новая фигура и оси.
+    cmap : str, default="Blues"
+        Имя colormap matplotlib (однотонная последовательная схема —
+        рекомендуется для величин без знака, как счётчики/доли).
+    title : str, optional
+        Заголовок графика.
+    value_format : str, optional
+        Python format-спецификатор для подписей ячеек (например, ``".1%"``
+        для нормализованной матрицы). Если None — значения приводятся к
+        ``int`` для сырых счётчиков.
+
+    Returns
+    -------
+    ax : matplotlib.axes.Axes
+        Оси с отрисованной матрицей (для дальнейшей настройки/сохранения).
+
+    Raises
+    ------
+    ImportError
+        Если matplotlib не установлен.
+    """
+    if plt is None:
+        raise ImportError(
+            "plot_confusion_matrix требует matplotlib (не входит в core-"
+            "зависимости библиотеки): pip install matplotlib."
+        )
+
+    matrix_arr = np.asarray(matrix)
+    _, rows = confusion_matrix_to_table(matrix_arr, labels, value_format=value_format)
+
+    if ax is None:
+        _, ax = plt.subplots()
+
+    ax.imshow(matrix_arr, cmap=cmap, vmin=0)
+    vmax = matrix_arr.max() if matrix_arr.size else 0
+    for i, row in enumerate(rows):
+        for j, value in enumerate(row[1:]):
+            frac = matrix_arr[i, j] / vmax if vmax else 0.0
+            ax.text(
+                j, i, str(value), ha="center", va="center",
+                color="white" if frac > 0.6 else "black", fontweight="bold",
+            )
+
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticklabels([str(label) for label in labels])
+    ax.set_yticklabels([str(label) for label in labels])
+    ax.set_xlabel("Предсказано")
+    ax.set_ylabel("Истина")
+    if title is not None:
+        ax.set_title(title)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    return ax
 
 
 def confidence_summary(confidence_ratio: np.ndarray) -> Dict[str, float]:

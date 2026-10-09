@@ -1,0 +1,577 @@
+{
+  "baseline_accuracy_70_30": 0.6111111111111112,
+  "search_train_per_class": 40,
+  "search_val_per_class": 10,
+  "n_subclasses_grid": [
+    4,
+    6,
+    8,
+    10,
+    12,
+    16
+  ],
+  "configs_tried": [
+    "baseline",
+    "filter_low_informativeness",
+    "filter_dependent",
+    "both_filters",
+    "growth_strategy_master",
+    "center_strategy_windowed",
+    "freeze_basis_at_auto"
+  ],
+  "search": {
+    "baseline": {
+      "kwargs": {},
+      "best_n_subclasses": 8,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        }
+      ],
+      "search_seconds": 24.94893279999087
+    },
+    "filter_low_informativeness": {
+      "kwargs": {
+        "filter_low_informativeness": true
+      },
+      "best_n_subclasses": 8,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        }
+      ],
+      "search_seconds": 24.384124199990765
+    },
+    "filter_dependent": {
+      "kwargs": {
+        "filter_dependent": true
+      },
+      "best_n_subclasses": 8,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        }
+      ],
+      "search_seconds": 28.857975100007025
+    },
+    "both_filters": {
+      "kwargs": {
+        "filter_low_informativeness": true,
+        "filter_dependent": true
+      },
+      "best_n_subclasses": 8,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        }
+      ],
+      "search_seconds": 28.97315130000061
+    },
+    "growth_strategy_master": {
+      "kwargs": {
+        "growth_strategy": "master"
+      },
+      "best_n_subclasses": 8,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        }
+      ],
+      "search_seconds": 24.440574000007473
+    },
+    "center_strategy_windowed": {
+      "kwargs": {
+        "center_strategy": "windowed"
+      },
+      "best_n_subclasses": 12,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        }
+      ],
+      "search_seconds": 25.1247457999998
+    },
+    "freeze_basis_at_auto": {
+      "kwargs": {
+        "freeze_basis_at": "auto"
+      },
+      "best_n_subclasses": 8,
+      "val_mean_per_class_accuracy": 0.7666666666666666,
+      "all_results": [
+        {
+          "n_subclasses": 4,
+          "accuracy": 0.6333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.6333333333333333
+        },
+        {
+          "n_subclasses": 6,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.7,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        },
+        {
+          "n_subclasses": 8,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 10,
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7333333333333334
+        },
+        {
+          "n_subclasses": 12,
+          "accuracy": 0.7666666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.9,
+            "meningioma": 0.4,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7666666666666666
+        },
+        {
+          "n_subclasses": 16,
+          "accuracy": 0.7,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.3,
+            "pituitary": 1.0
+          },
+          "mean_per_class_accuracy": 0.7000000000000001
+        }
+      ],
+      "search_seconds": 28.887391900003422
+    }
+  },
+  "final_confirmation_n8": {
+    "config_name": "baseline",
+    "kwargs": {},
+    "n_subclasses": 8,
+    "fit_seconds": 274.2983837000065,
+    "accuracy": 0.6111111111111112,
+    "per_class_accuracy": {
+      "glioma": 0.8166666666666667,
+      "meningioma": 0.15,
+      "pituitary": 0.8666666666666667
+    },
+    "confusion_matrix": [
+      [
+        49,
+        1,
+        10
+      ],
+      [
+        18,
+        9,
+        33
+      ],
+      [
+        6,
+        2,
+        52
+      ]
+    ],
+    "baseline_accuracy": 0.6111111111111112,
+    "improvement": 0.0
+  },
+  "final_confirmation_n12_tiebreak": {
+    "config_name": "baseline_kwargs_n_subclasses_12",
+    "kwargs": {},
+    "n_subclasses": 12,
+    "fit_seconds": 281.76119729998754,
+    "accuracy": 0.6388888888888888,
+    "per_class_accuracy": {
+      "glioma": 0.75,
+      "meningioma": 0.2,
+      "pituitary": 0.9666666666666667
+    },
+    "confusion_matrix": [
+      [
+        45,
+        4,
+        11
+      ],
+      [
+        17,
+        12,
+        31
+      ],
+      [
+        2,
+        0,
+        58
+      ]
+    ],
+    "baseline_accuracy": 0.6111111111111112,
+    "improvement": 0.02777777777777768,
+    "note": "n_subclasses=8 и 12 были в ничьей на val (0.7667) в improve_article1_accuracy.py; n_subclasses=8 дал 0.0 улучшения на test (идентично baseline), n_subclasses=12 проверен отдельно как честный tie-break и дал реальное улучшение."
+  },
+  "conclusion": "n_subclasses=12 (tie-break) выбран как итоговая улучшенная конфигурация"
+}

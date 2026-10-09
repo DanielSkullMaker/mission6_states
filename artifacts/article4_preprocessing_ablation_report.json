@@ -1,0 +1,56 @@
+{
+  "random_seed": 42,
+  "n_subclasses": 8,
+  "results": [
+    {
+      "name": "full_pipeline",
+      "description": "Полный пайплайн (resize + подавление фона + центрирование, порог 10)",
+      "accuracy": 0.6219774958103902,
+      "per_class_accuracy": {
+        "no_tumor": 0.6504185130477598,
+        "tumor": 0.5950605778191985
+      },
+      "fit_seconds": 174.4009442000006
+    },
+    {
+      "name": "resize_only",
+      "description": "Только resize (без подавления фона и центрирования)",
+      "accuracy": 0.6669858750299258,
+      "per_class_accuracy": {
+        "no_tumor": 0.5652387986213688,
+        "tumor": 0.7632805219012115
+      },
+      "fit_seconds": 111.00574740000047
+    },
+    {
+      "name": "suppress_no_center",
+      "description": "Resize + подавление фона, без центрирующего сдвига",
+      "accuracy": 0.6655494373952597,
+      "per_class_accuracy": {
+        "no_tumor": 0.5647464303298868,
+        "tumor": 0.760950605778192
+      },
+      "fit_seconds": 123.24838239999917
+    },
+    {
+      "name": "strong_threshold",
+      "description": "Полный пайплайн, порог подавления фона 40",
+      "accuracy": 0.6478333732343787,
+      "per_class_accuracy": {
+        "no_tumor": 0.7124569177744953,
+        "tumor": 0.5866728797763281
+      },
+      "fit_seconds": 95.8654862000003
+    },
+    {
+      "name": "minmax_norm",
+      "description": "Полный пайплайн, min-max нормализация вместо перцентильной",
+      "accuracy": 0.5925305242997366,
+      "per_class_accuracy": {
+        "no_tumor": 0.4155588380108321,
+        "tumor": 0.7600186393289842
+      },
+      "fit_seconds": 106.22162469999967
+    }
+  ]
+}

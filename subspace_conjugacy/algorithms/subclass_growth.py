@@ -311,7 +311,7 @@ class ConjugacyClusterGrowth:
                 R_others = np.concatenate([R_row[:s_idx], R_row[s_idx+1:]])
                 mean_others = R_others.mean() if len(R_others) > 0 else 1.0
 
-                if mean_others <= 1e-10:
+                if mean_others <= self.reg_param:
                     logger.debug(
                         "ConjugacyClusterGrowth._find_argmax_master: "
                         "mean_others~0 для кандидата %d/подкласса %d — "

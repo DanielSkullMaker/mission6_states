@@ -1,22 +1,16 @@
 """Высокоуровневые функции для извлечения признаков из датасета."""
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import numpy as np
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from subspace_conjugacy.features.vectorization import load_and_vectorize_batch
 
-try:
+if TYPE_CHECKING:
     from subspace_conjugacy.config import DatasetConfig
-    from subspace_conjugacy.features.vectorization import (
-        load_and_vectorize_batch,
-        VectorizationType,
-    )
-except ImportError:
-    DatasetConfig = None
-    load_and_vectorize_batch = None
-    VectorizationType = None
+
+logger = logging.getLogger(__name__)
 
 
 def extract_class_vectors(

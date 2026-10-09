@@ -8,15 +8,14 @@ import csv
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
-try:
+if TYPE_CHECKING:
     from subspace_conjugacy.config import DatasetConfig
-except ImportError:
-    DatasetConfig = None
+    from subspace_conjugacy.models.classifier import SubspaceConjugacyClassifier
+
+logger = logging.getLogger(__name__)
 
 
 def save_vectors_csv(

@@ -1,0 +1,183 @@
+{
+  "random_seed": 42,
+  "accuracy_unsmoothed_recomputed": 0.6219774958103902,
+  "accuracy_smoothed_recomputed": 0.6198228393583912,
+  "mcnemar_slice_level": {
+    "n_smoothing_helped": 65,
+    "n_smoothing_hurt": 74,
+    "p_value": 0.49756414159660867,
+    "caveat": "срезы одного пациента сильно автокоррелированы (см. article4_correlation_report.json) — это p-value ОПТИМИСТИЧНО (неверно считает 1033 среза независимыми)."
+  },
+  "per_patient": {
+    "BraTS20_Training_004": {
+      "n_slices": 130,
+      "accuracy_unsmoothed": 0.7615384615384615,
+      "accuracy_smoothed": 0.7384615384615385
+    },
+    "BraTS20_Training_008": {
+      "n_slices": 131,
+      "accuracy_unsmoothed": 0.549618320610687,
+      "accuracy_smoothed": 0.5725190839694656
+    },
+    "BraTS20_Training_009": {
+      "n_slices": 128,
+      "accuracy_unsmoothed": 0.6796875,
+      "accuracy_smoothed": 0.671875
+    },
+    "BraTS20_Training_010": {
+      "n_slices": 126,
+      "accuracy_unsmoothed": 0.626984126984127,
+      "accuracy_smoothed": 0.6349206349206349
+    },
+    "BraTS20_Training_021": {
+      "n_slices": 126,
+      "accuracy_unsmoothed": 0.6904761904761905,
+      "accuracy_smoothed": 0.7142857142857143
+    },
+    "BraTS20_Training_025": {
+      "n_slices": 123,
+      "accuracy_unsmoothed": 0.6016260162601627,
+      "accuracy_smoothed": 0.6016260162601627
+    },
+    "BraTS20_Training_026": {
+      "n_slices": 136,
+      "accuracy_unsmoothed": 0.6838235294117647,
+      "accuracy_smoothed": 0.6691176470588235
+    },
+    "BraTS20_Training_034": {
+      "n_slices": 131,
+      "accuracy_unsmoothed": 0.7786259541984732,
+      "accuracy_smoothed": 0.7633587786259542
+    },
+    "BraTS20_Training_038": {
+      "n_slices": 127,
+      "accuracy_unsmoothed": 0.7559055118110236,
+      "accuracy_smoothed": 0.7716535433070866
+    },
+    "BraTS20_Training_047": {
+      "n_slices": 133,
+      "accuracy_unsmoothed": 0.45112781954887216,
+      "accuracy_smoothed": 0.45864661654135336
+    },
+    "BraTS20_Training_051": {
+      "n_slices": 128,
+      "accuracy_unsmoothed": 0.7109375,
+      "accuracy_smoothed": 0.71875
+    },
+    "BraTS20_Training_053": {
+      "n_slices": 137,
+      "accuracy_unsmoothed": 0.5766423357664233,
+      "accuracy_smoothed": 0.5474452554744526
+    },
+    "BraTS20_Training_055": {
+      "n_slices": 142,
+      "accuracy_unsmoothed": 0.6338028169014085,
+      "accuracy_smoothed": 0.6197183098591549
+    },
+    "BraTS20_Training_057": {
+      "n_slices": 119,
+      "accuracy_unsmoothed": 0.7647058823529411,
+      "accuracy_smoothed": 0.7478991596638656
+    },
+    "BraTS20_Training_067": {
+      "n_slices": 137,
+      "accuracy_unsmoothed": 0.5620437956204379,
+      "accuracy_smoothed": 0.5401459854014599
+    },
+    "BraTS20_Training_080": {
+      "n_slices": 128,
+      "accuracy_unsmoothed": 0.5859375,
+      "accuracy_smoothed": 0.578125
+    },
+    "BraTS20_Training_097": {
+      "n_slices": 125,
+      "accuracy_unsmoothed": 0.712,
+      "accuracy_smoothed": 0.768
+    },
+    "BraTS20_Training_099": {
+      "n_slices": 136,
+      "accuracy_unsmoothed": 0.5661764705882353,
+      "accuracy_smoothed": 0.5735294117647058
+    },
+    "BraTS20_Training_108": {
+      "n_slices": 135,
+      "accuracy_unsmoothed": 0.7037037037037037,
+      "accuracy_smoothed": 0.7333333333333333
+    },
+    "BraTS20_Training_109": {
+      "n_slices": 134,
+      "accuracy_unsmoothed": 0.4253731343283582,
+      "accuracy_smoothed": 0.43283582089552236
+    },
+    "BraTS20_Training_113": {
+      "n_slices": 130,
+      "accuracy_unsmoothed": 0.7538461538461538,
+      "accuracy_smoothed": 0.7461538461538462
+    },
+    "BraTS20_Training_115": {
+      "n_slices": 127,
+      "accuracy_unsmoothed": 0.6456692913385826,
+      "accuracy_smoothed": 0.6614173228346457
+    },
+    "BraTS20_Training_121": {
+      "n_slices": 138,
+      "accuracy_unsmoothed": 0.5289855072463768,
+      "accuracy_smoothed": 0.5362318840579711
+    },
+    "BraTS20_Training_126": {
+      "n_slices": 126,
+      "accuracy_unsmoothed": 0.5158730158730159,
+      "accuracy_smoothed": 0.5079365079365079
+    },
+    "BraTS20_Training_130": {
+      "n_slices": 128,
+      "accuracy_unsmoothed": 0.3984375,
+      "accuracy_smoothed": 0.3984375
+    },
+    "BraTS20_Training_131": {
+      "n_slices": 131,
+      "accuracy_unsmoothed": 0.5648854961832062,
+      "accuracy_smoothed": 0.5267175572519084
+    },
+    "BraTS20_Training_132": {
+      "n_slices": 133,
+      "accuracy_unsmoothed": 0.8120300751879699,
+      "accuracy_smoothed": 0.7894736842105263
+    },
+    "BraTS20_Training_133": {
+      "n_slices": 125,
+      "accuracy_unsmoothed": 0.584,
+      "accuracy_smoothed": 0.56
+    },
+    "BraTS20_Training_139": {
+      "n_slices": 132,
+      "accuracy_unsmoothed": 0.4696969696969697,
+      "accuracy_smoothed": 0.4621212121212121
+    },
+    "BraTS20_Training_144": {
+      "n_slices": 133,
+      "accuracy_unsmoothed": 0.43609022556390975,
+      "accuracy_smoothed": 0.45112781954887216
+    },
+    "BraTS20_Training_153": {
+      "n_slices": 132,
+      "accuracy_unsmoothed": 0.7121212121212122,
+      "accuracy_smoothed": 0.696969696969697
+    },
+    "BraTS20_Training_158": {
+      "n_slices": 130,
+      "accuracy_unsmoothed": 0.6923076923076923,
+      "accuracy_smoothed": 0.676923076923077
+    }
+  },
+  "n_patients_helped": 13,
+  "n_patients_hurt": 17,
+  "n_patients_same": 2,
+  "bootstrap_patient_level": {
+    "n_bootstrap": 10000,
+    "mean_diff": -0.002028835988589618,
+    "ci_95_low": -0.008718443462513473,
+    "ci_95_high": 0.004689386983690754,
+    "fraction_diff_leq_zero": 0.7285
+  }
+}

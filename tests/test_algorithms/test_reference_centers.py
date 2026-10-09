@@ -362,5 +362,95 @@ class TestReferenceCenterBuilderVsClusterer:
         )
 
 
+@pytest.mark.theory
+class TestReferenceCenterBuilderWindowedStrategy:
+    """Тесты strategy='windowed' (theory/code/DATA_100.m/Otbor_100.m) — не
+    часть опубликованной статьи, см. docstring модуля reference_centers.py."""
+
+    def test_invalid_strategy_raises(self):
+        with pytest.raises(ValueError, match="'default' или 'windowed'"):
+            ReferenceCenterBuilder(n_subclasses=4, strategy="bogus")
+
+    def test_windowed_returns_correct_number_of_centers(self):
+        np.random.seed(42)
+        X = np.random.randn(60, 32)
+        initial_pair = (5, 23)
+
+        builder = ReferenceCenterBuilder(n_subclasses=10, strategy="windowed")
+        builder.fit(X, initial_pair)
+
+        assert len(builder.center_indices_) == 10
+
+    def test_windowed_initial_pair_preserved(self):
+        np.random.seed(42)
+        X = np.random.randn(40, 16)
+        initial_pair = (3, 17)
+
+        builder = ReferenceCenterBuilder(n_subclasses=6, strategy="windowed")
+        builder.fit(X, initial_pair)
+
+        centers = builder.center_indices_
+        assert centers[0] == initial_pair[0]
+        assert centers[1] == initial_pair[1]
+
+    def test_windowed_centers_unique(self):
+        """R(x, Y)=1 для x, уже входящего в Y — самоисключение работает и
+        без явного вычёркивания из пула кандидатов."""
+        np.random.seed(42)
+        X = np.random.randn(50, 24)
+        initial_pair = (0, 1)
+
+        builder = ReferenceCenterBuilder(n_subclasses=12, strategy="windowed")
+        builder.fit(X, initial_pair)
+
+        centers = builder.center_indices_
+        assert len(set(centers)) == len(centers)
+
+    def test_windowed_fallback_when_window_exhausted(self):
+        """При n_subclasses=M окно неизбежно "убегает" за пределы набора —
+        подстраховка должна расширить пул, а не упасть с ошибкой."""
+        np.random.seed(42)
+        M = 15
+        X = np.random.randn(M, 20)
+        initial_pair = (0, 1)
+
+        builder = ReferenceCenterBuilder(n_subclasses=M, strategy="windowed")
+        builder.fit(X, initial_pair)
+
+        assert len(builder.center_indices_) == M
+        assert set(builder.center_indices_) == set(range(M))
+
+    def test_windowed_can_exclude_positional_argmin(self):
+        """Кандидат с индексом < window_start исключается из пула, даже
+        если он был бы истинным argmin R для strategy='default'."""
+        rng = np.random.default_rng(10)
+        N = 16
+        X = rng.standard_normal((6, N))
+        initial_pair = (4, 5)
+
+        # Строим вектор 0, ортогональный подпространству initial_pair ->
+        # R(X[0], Y) = 0, гарантированный глобальный минимум (R >= 0 всегда).
+        Y = X[list(initial_pair)].T
+        gram_inv = np.linalg.inv(Y.T @ Y)
+        proj = Y @ gram_inv @ Y.T
+        v = rng.standard_normal(N)
+        v_orth = v - proj @ v
+        X[0] = v_orth / np.linalg.norm(v_orth) * 5.0
+
+        default_builder = ReferenceCenterBuilder(n_subclasses=3, strategy="default")
+        default_builder.fit(X, initial_pair)
+        windowed_builder = ReferenceCenterBuilder(n_subclasses=3, strategy="windowed")
+        windowed_builder.fit(X, initial_pair)
+
+        assert default_builder.center_indices_[2] == 0
+        # window_start = len(centers) - 1 = 1 при поиске 3-го центра ->
+        # индекс 0 позиционно исключён из пула, несмотря на R=0.
+        assert windowed_builder.center_indices_[2] != 0
+
+    def test_repr_shows_strategy(self):
+        builder = ReferenceCenterBuilder(n_subclasses=4, strategy="windowed")
+        assert "strategy='windowed'" in repr(builder)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short", "-m", "theory"])

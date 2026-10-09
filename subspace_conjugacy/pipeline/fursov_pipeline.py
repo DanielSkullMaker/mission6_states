@@ -14,11 +14,14 @@ SubspaceConjugacyClassifier из обученных clusterers_, ``classify_test
 
 import inspect
 import logging
-from typing import Any, Dict, List, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
 
 import numpy as np
 
 from subspace_conjugacy.pipeline.stages import STAGE_REGISTRY
+
+if TYPE_CHECKING:
+    from subspace_conjugacy.config import DatasetConfig
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,7 @@ class FursovPipeline:
         n_subclasses: Optional[int] = None,
         freeze_basis_at: int = 2,
         growth_strategy: str = "default",
+        center_strategy: str = "default",
         reg_param: float = 1e-8,
         vector_stage: str = "centered",
         vector_method: str = "horizontal",
@@ -142,6 +146,9 @@ class FursovPipeline:
             Размер базиса подкласса (теория C требует k=2 для классификатора).
         growth_strategy : {"default", "master"}, default="default"
             Стратегия наполнения кластеров (Фаза B.2).
+        center_strategy : {"default", "windowed"}, default="default"
+            Стратегия построения центров подклассов (Фаза A.2-A.3) — см.
+            algorithms/reference_centers.py, docstring модуля.
         reg_param : float, default=1e-8
             Параметр регуляризации.
         vector_stage : str, default="centered"
@@ -179,6 +186,7 @@ class FursovPipeline:
             n_subclasses=n_subclasses,
             freeze_basis_at=freeze_basis_at,
             growth_strategy=growth_strategy,
+            center_strategy=center_strategy,
             reg_param=reg_param,
         )
         self.clusterers_[class_name] = clusterer

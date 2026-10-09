@@ -1,0 +1,60 @@
+{
+  "random_seed": 42,
+  "warning": "train==test (100% overlap) + n_subclasses=45 (capacity/memorization) — accuracy here is NOT a valid quality metric, see report .md",
+  "results": {
+    "dishonest_capacity_n45": {
+      "n_subclasses": 45,
+      "avg_objects_per_subclass": 2.2222222222222223,
+      "n_train": 200,
+      "n_test": 200,
+      "overlap_fraction": 1.0,
+      "fit_seconds": 5.77839270000004,
+      "accuracy": 0.995,
+      "per_class_accuracy": {
+        "no_tumor": 0.99,
+        "tumor": 1.0
+      },
+      "confusion_matrix": [
+        [
+          99,
+          1
+        ],
+        [
+          0,
+          100
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    }
+  },
+  "honest_reference_patient_split": {
+    "honest": true,
+    "description": "непересекающиеся пациенты (32 train / 8 test)",
+    "n_train": 200,
+    "n_test": 4177,
+    "fit_seconds": 126.97835140000097,
+    "accuracy": 0.6219774958103902,
+    "per_class_accuracy": {
+      "no_tumor": 0.6504185130477598,
+      "tumor": 0.5950605778191985
+    },
+    "patient_overlap_fraction": 0.0,
+    "confusion_matrix": [
+      [
+        1321,
+        710
+      ],
+      [
+        869,
+        1277
+      ]
+    ],
+    "labels": [
+      "no_tumor",
+      "tumor"
+    ]
+  }
+}

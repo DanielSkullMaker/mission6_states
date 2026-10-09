@@ -3,6 +3,7 @@
 from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
 from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
 from subspace_conjugacy.algorithms.reference_filter import LinearDependencyFilter
+from subspace_conjugacy.algorithms.correlation_core_selector import CorrelationCoreSelector
 from subspace_conjugacy.algorithms.informativeness_filter import (
     DEFAULT_BRIGHTNESS_THRESHOLD,
     DEFAULT_MIN_FRACTION_OF_MEAN,
@@ -11,6 +12,9 @@ from subspace_conjugacy.algorithms.informativeness_filter import (
 from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
 from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
 from subspace_conjugacy.algorithms.fursov_clusterer import FursovClusterer, SubspaceClusterer
+from subspace_conjugacy.algorithms.recursive_bisection import RecursiveBisectionClusterer
+from subspace_conjugacy.algorithms.subclass_growth_parallel import ParallelConjugacyClusterGrowth
+from subspace_conjugacy.algorithms.fursov_clusterer_parallel import ParallelFursovClusterer
 from subspace_conjugacy.algorithms.subclass_export import (
     equalize_subspace_bases,
     flatten_subspace_bases,
@@ -23,6 +27,7 @@ __all__ = [
     "GlobalMinCosinePairFinder",
     "ReferenceCenterBuilder",
     "LinearDependencyFilter",
+    "CorrelationCoreSelector",
     "LowInformativenessFilter",
     "DEFAULT_BRIGHTNESS_THRESHOLD",
     "DEFAULT_MIN_FRACTION_OF_MEAN",
@@ -30,6 +35,9 @@ __all__ = [
     "ConjugacyClusterGrowth",
     "FursovClusterer",
     "SubspaceClusterer",
+    "RecursiveBisectionClusterer",
+    "ParallelConjugacyClusterGrowth",
+    "ParallelFursovClusterer",
     "equalize_subspace_bases",
     "flatten_subspace_bases",
     "unflatten_subspace_bases",

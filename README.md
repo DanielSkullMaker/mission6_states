@@ -14,6 +14,7 @@
 - [Структура проекта](#структура-проекта)
 - [Статус реализации по фазам](#статус-реализации-по-фазам)
 - [Сверка с опубликованной статьёй](#сверка-с-опубликованной-статьёй)
+- [Опциональные находки из MATLAB-кода (theory/code)](#опциональные-находки-из-matlab-кода-theorycode)
 - [Известные ограничения и особенности метода](#известные-ограничения-и-особенности-метода)
 - [Тестирование](#тестирование)
 - [Данные](#данные)
@@ -283,6 +284,81 @@ report["per_class_accuracy"]   # {class_label: accuracy}
 report["confusion_matrix"]     # sklearn confusion_matrix
 ```
 
+### Методология статьи (Table I/II, Fig. 5/7) — без утечки
+
+`subspace_conjugacy.evaluation.paper_methodology` реализует методологию
+оценки из статьи Korshikov & Fursov: фиксированный 80/20 сплит, перебор
+`n_subclasses` с выбором лучшего по средней точности (Fig. 5/7 — "identified
+the number of subspaces at which the highest accuracy was achieved"), и
+сравнение с/без фильтра малоинформативных изображений (Table I vs Table II,
+находка №5). `main.py` использует эту функцию напрямую — не дублирует логику.
+
+⚠️ Мотивация `paper_train_test_split()` — в `theory/code/Run_200.m`
+`Recogn_VSPU_S1(M_test_3, M_train_3)` тестирует на том же пуле изображений,
+из которого отобраны опорные векторы (`M_train_3` строится из `M_test_3` в
+`DATA_100.m`) — структурная утечка данных (см. раздел «Опциональные находки
+из MATLAB-кода» ниже). `paper_train_test_split()` явно проверяет
+непересечение индексов train/test, чтобы гарантированно избежать такой же
+ошибки в библиотеке.
+
+```python
+from subspace_conjugacy import (
+    paper_train_test_split,
+    find_best_n_subclasses,
+    compare_informativeness_filter,
+)
+
+X_train, X_test, y_train, y_test = paper_train_test_split(X, y, train_fraction=0.8)
+
+# Fig. 5/7: подбор n_subclasses по held-out accuracy
+result = find_best_n_subclasses(X_train, y_train, X_test, y_test)
+result["best_n_subclasses"], result["best_mean_per_class_accuracy"]
+result["best_estimator_"].predict(X_new)
+
+# Table I vs Table II: с/без фильтра малоинформативных изображений
+comparison = compare_informativeness_filter(X_train, y_train, X_test, y_test)
+comparison["table_I_baseline"]["best_mean_per_class_accuracy"]
+comparison["table_II_filtered"]["best_mean_per_class_accuracy"]
+```
+
+⚠️ Остающаяся оговорка (уже самой статьи, не библиотеки): если один и тот же
+`X_eval`/`y_eval` используется и для подбора `n_subclasses`, и как финальный
+"test" в отчёте — это мягкая форма переобучения под тест (model selection
+leakage), отличная от утечки `Run_200.m`, но тоже завышает репортируемую
+точность. Для строгой оценки подберите `n_subclasses` на отдельном
+`X_val`/`y_val`, а финальную точность измерьте один раз на третьем,
+не участвовавшем в подборе `X_test`/`y_test` — см. docstring
+`find_best_n_subclasses`.
+
+### Сплит через попарное разнесение (совет научного руководителя, `theory/code/Вариант_2_1.docx`)
+
+Более ранний черновик статьи (не опубликованная версия выше) описывает
+ДРУГУЮ методологию train/test сплита — дословно, реконструкция по черновику:
+*«Подбираем для каждого из изображений класса наиболее коррелированное по
+формуле (1). Из этой пары одно изображение закидываем в обучающую, другое
+в тестовую выборку»*. `paired_correlation_split()` реализует именно её.
+
+⚠️ Черновик сам признаёт цену этой методологии (дословная цитата):
+*«...в тестовой выборке будут все изображения, похожие на изображения, из
+которых конструируется образцовое (обучающее) множество, ошибки различных
+методов распознавания будут отражать преимущественно влияние метода
+формирования этого множества»* — то есть test специально подобран похожим
+на train, это НЕ независимая held-out оценка. Эмпирически на реальном
+датасете (`datasets/`, 100 изображений/класс, 3 seed) эффект существует, но
+скромный и шумный (paired mean ≈0.798 против independent ≈0.766 на тех же
+данных) — далеко не драматичные 90-99% из Table 1 черновика (там больше
+данных и другая настройка отбора эталонов).
+
+```python
+from subspace_conjugacy import paired_correlation_split, find_best_n_subclasses
+
+paired = paired_correlation_split(X, y, random_state=42)
+result = find_best_n_subclasses(
+    paired["X_train"], paired["y_train"], paired["X_test"], paired["y_test"]
+)
+paired["pairs"]  # [(train_index, test_index), ...] — какая пара с какой
+```
+
 ## Структура проекта
 
 ```
@@ -347,6 +423,7 @@ tests/
 └── test_parity/                 # @pytest.mark.notebook_parity — на реальных PNG из datasets/
 
 main.py           # End-to-end скрипт: датасет -> train/test split -> classifier -> отчёт -> артефакты
+experiments/      # Разовые эксперименты и генератор отчётов (не покрыты тестами, требуют datasets/)
 scripts/          # Исходные Jupyter-ноутбуки (reference/legacy, см. "Известные ограничения")
 theory/           # Исходные документы с описанием канонического алгоритма (.docx)
 refactoring_plan.txt   # Полный план рефакторинга по фазам — источник этого README
@@ -528,6 +605,46 @@ Criteria with Subspaces of Reference Images", [`theory/`](theory)) — полн�
 затем избыточность среди оставшихся; `FursovClusterer.excluded_indices_` —
 объединение (`np.union1d`) исключений обоих фильтров, с отдельными
 `excluded_by_informativeness_`/`excluded_by_dependency_` для интроспекции.
+
+## Опциональные находки из MATLAB-кода (theory/code)
+
+Помимо `refactoring_plan.txt` (каноничный источник алгоритма) и статьи
+Korshikov & Fursov, в репозитории есть отдельная, более ранняя MATLAB-
+реализация метода (`theory/code/*.m`, orchestrator — `Run_200.m`). Она НЕ
+готова к прямому переносу как есть (нерабочий `Run_200.m`: необъявленная
+переменная `M_test_Kor_3` при вызове `Otbor_100`, а вызов `DATA_100`
+оказывается мёртвым кодом — его результат тут же перезатирается) и не
+сверена с опубликованной статьёй — но три её идеи реализованы как
+**отдельные, опциональные** (по умолчанию не задействованные) возможности,
+не нарушающие обратную совместимость:
+
+| № | Идея из MATLAB-кода | Источник | Реализация |
+|---|---|---|---|
+| 1 | Отбор "ядра" — n_target взаимно наиболее скоррелированных (типичных) эталонных векторов класса | `DATA_100.m`, первая половина | `algorithms.CorrelationCoreSelector` |
+| 2 | Построение центров подклассов (A.2-A.3) с позиционно ограниченным снизу пулом кандидатов | `DATA_100.m`/`Otbor_100.m`, вторая половина | `ReferenceCenterBuilder(strategy="windowed")` → `FursovClusterer(center_strategy="windowed")` → `SubspaceConjugacyClassifier(center_strategy="windowed")` |
+| 3 | Сглаживание соседних ПО ИНДЕКСУ тестовых векторов (не пикселей внутри изображения) переменным окном 3/5/7 перед классификацией | `Recogn_VSPU_S1.m` | `smooth_adjacent_vectors` |
+
+```python
+from subspace_conjugacy import CorrelationCoreSelector, smooth_adjacent_vectors
+from subspace_conjugacy import SubspaceConjugacyClassifier
+
+# Находка №1: отбор ядра эталонных векторов класса перед кластеризацией
+selector = CorrelationCoreSelector(n_target=100)  # из 200 эталонных изображений
+X_core = selector.fit_transform(X_glioma)
+
+# Находка №2: "оконная" стратегия построения центров подклассов
+clf = SubspaceConjugacyClassifier(n_subclasses=8, center_strategy="windowed")
+clf.fit(X_train, y_train)
+
+# Находка №3: сглаживание соседних тестовых векторов (только если порядок
+# X_test содержательный — например, последовательные срезы одного пациента)
+X_test_smoothed = smooth_adjacent_vectors(X_test)
+predictions = clf.predict(X_test_smoothed)
+```
+
+Находка №3 предполагает содержательный порядок строк входной матрицы —
+функция не проверяет и не гарантирует это сама, ответственность на
+вызывающем коде.
 
 ## Известные ограничения и особенности метода
 

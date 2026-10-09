@@ -1,0 +1,116 @@
+{
+  "train_per_class": 90,
+  "test_per_class": 40,
+  "core_fraction": 0.5,
+  "n_subclasses": 8,
+  "random_seed": 42,
+  "baseline_accuracy": 0.6833333333333333,
+  "best_config": {
+    "name": "+ находка №1 (CorrelationCoreSelector)",
+    "test": "smoothed",
+    "accuracy": 0.8416666666666667
+  },
+  "results": [
+    {
+      "config": "baseline (канон)",
+      "use_core_selector": false,
+      "use_windowed_centers": false,
+      "n_train_total": 270,
+      "fit_time_s": 64.7,
+      "eval": {
+        "raw": {
+          "accuracy": 0.6833333333333333,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.325,
+            "pituitary": 0.925
+          }
+        },
+        "smoothed": {
+          "accuracy": 0.7416666666666667,
+          "per_class_accuracy": {
+            "glioma": 1.0,
+            "meningioma": 0.225,
+            "pituitary": 1.0
+          }
+        }
+      }
+    },
+    {
+      "config": "+ находка №1 (CorrelationCoreSelector)",
+      "use_core_selector": true,
+      "use_windowed_centers": false,
+      "n_train_total": 135,
+      "fit_time_s": 6.7,
+      "eval": {
+        "raw": {
+          "accuracy": 0.6916666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.55,
+            "meningioma": 0.625,
+            "pituitary": 0.9
+          }
+        },
+        "smoothed": {
+          "accuracy": 0.8416666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.875,
+            "meningioma": 0.65,
+            "pituitary": 1.0
+          }
+        }
+      }
+    },
+    {
+      "config": "+ находка №2 (center_strategy='windowed')",
+      "use_core_selector": false,
+      "use_windowed_centers": true,
+      "n_train_total": 270,
+      "fit_time_s": 64.6,
+      "eval": {
+        "raw": {
+          "accuracy": 0.65,
+          "per_class_accuracy": {
+            "glioma": 0.8,
+            "meningioma": 0.275,
+            "pituitary": 0.875
+          }
+        },
+        "smoothed": {
+          "accuracy": 0.7333333333333333,
+          "per_class_accuracy": {
+            "glioma": 1.0,
+            "meningioma": 0.2,
+            "pituitary": 1.0
+          }
+        }
+      }
+    },
+    {
+      "config": "+ находки №1 и №2",
+      "use_core_selector": true,
+      "use_windowed_centers": true,
+      "n_train_total": 135,
+      "fit_time_s": 6.8,
+      "eval": {
+        "raw": {
+          "accuracy": 0.6916666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.55,
+            "meningioma": 0.625,
+            "pituitary": 0.9
+          }
+        },
+        "smoothed": {
+          "accuracy": 0.8416666666666667,
+          "per_class_accuracy": {
+            "glioma": 0.875,
+            "meningioma": 0.65,
+            "pituitary": 1.0
+          }
+        }
+      }
+    }
+  ],
+  "elapsed_s": 150.4
+}

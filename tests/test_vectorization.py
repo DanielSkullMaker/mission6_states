@@ -229,5 +229,34 @@ class TestVectorizationPerformance:
         assert speedup > 10, f"Speedup только {speedup:.1f}x (ожидалось >10x)"
 
 
+class TestLoadAndVectorizeBatchParallel:
+    """load_and_vectorize_batch_parallel должен совпадать с последовательной
+    версией (ThreadPoolExecutor, не меняет load_and_vectorize)."""
+
+    def test_matches_sequential_and_preserves_order(self):
+        try:
+            import cv2
+        except ImportError:
+            pytest.skip("OpenCV not available")
+
+        from subspace_conjugacy.features.vectorization_parallel import (
+            load_and_vectorize_batch_parallel,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = []
+            rng = np.random.RandomState(0)
+            for i in range(8):
+                img_path = Path(tmpdir) / f"img{i}.png"
+                img = rng.randint(0, 256, (32, 32), dtype=np.uint8)
+                cv2.imwrite(str(img_path), img)
+                paths.append(img_path)
+
+            X_sequential = load_and_vectorize_batch(paths)
+            X_parallel = load_and_vectorize_batch_parallel(paths, max_workers=4)
+
+            assert np.array_equal(X_sequential, X_parallel)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

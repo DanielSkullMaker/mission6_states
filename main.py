@@ -44,7 +44,8 @@ Preprocessing") + models.sequential_classifier.SequentialClassifier
 classification becomes a set of data for the next stage") — см. README,
 раздел "Двухэтапная классификация: проекция → тип опухоли". Если у вас есть
 датасет с проекционной разметкой, эти два примитива достаточно скомбинировать
-с уже написанными здесь функциями preprocess_and_vectorize/run_accuracy_sweep.
+с уже написанной здесь функцией preprocess_and_vectorize и библиотечной
+subspace_conjugacy.evaluation.paper_methodology.compare_informativeness_filter.
 
 Датасет не входит в репозиторий — путь задаётся переменной окружения
 BRAIN_MRI_ARCHIVE_ROOT (по умолчанию — путь на машине автора).
@@ -60,9 +61,9 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
-from subspace_conjugacy import FursovPipeline, SubspaceConjugacyClassifier, save_model
+from subspace_conjugacy import FursovPipeline, save_model
 from subspace_conjugacy.config import DatasetConfig
-from subspace_conjugacy.evaluation.metrics import evaluate_classifier
+from subspace_conjugacy.evaluation.paper_methodology import compare_informativeness_filter
 
 # --------------------------------------------------------------------------
 # Конфигурация эксперимента — правьте эти константы под свою задачу.
@@ -192,67 +193,25 @@ def preprocess_and_vectorize(
     return X_by_class, X_test
 
 
-def run_accuracy_sweep(
-    X_by_class: Dict[str, np.ndarray],
-    X_test: np.ndarray,
-    y_test: np.ndarray,
-    filter_low_informativeness: bool,
-) -> Dict[str, Any]:
-    """Перебирает N_SUBCLASSES_GRID, возвращает точку с лучшей mean accuracy.
-
-    Аналог того, как статья "identified the number of subspaces at which
-    the highest accuracy was achieved" (Fig. 5/7) — среди подпространств
-    любого фиксированного размера выбирается число подклассов с наилучшей
-    средней по классам точностью распознавания.
-    """
-    X_train = np.vstack([X_by_class[cls] for cls in CLASSES])
-    y_train = np.concatenate(
-        [np.full(X_by_class[cls].shape[0], cls) for cls in CLASSES]
-    )
-
-    all_results = []
-    best = None
-    for n_subclasses in N_SUBCLASSES_GRID:
-        clf = SubspaceConjugacyClassifier(
-            n_subclasses=n_subclasses,
-            freeze_basis_at=FREEZE_BASIS_AT,
-            filter_low_informativeness=filter_low_informativeness,
-            informativeness_min_fraction=INFORMATIVENESS_MIN_FRACTION,
-        )
-        clf.fit(X_train, y_train)
-        y_pred = clf.predict(X_test)
-        report = evaluate_classifier(y_test, y_pred)
-
-        per_class_accuracy = {str(k): v for k, v in report["per_class_accuracy"].items()}
-        mean_accuracy = float(np.mean(list(per_class_accuracy.values())))
-
-        point = {
-            "n_subclasses": n_subclasses,
-            "per_class_accuracy": per_class_accuracy,
-            "mean_accuracy": mean_accuracy,
-        }
-        all_results.append(point)
+def _print_table(label: str, table: Dict[str, Any]) -> None:
+    print(f"   {label}:")
+    for point in table["all_results"]:
         print(
-            f"      n_subclasses={n_subclasses}: "
-            f"{per_class_accuracy}, mean={mean_accuracy:.3f}"
+            f"      n_subclasses={point['n_subclasses']}: "
+            f"{point['per_class_accuracy']}, mean={point['mean_per_class_accuracy']:.3f}"
         )
-
-        if best is None or mean_accuracy > best["mean_accuracy"]:
-            best = {**point, "classifier": clf}
-
-    return {
-        "best_n_subclasses": best["n_subclasses"],
-        "per_class_accuracy": best["per_class_accuracy"],
-        "mean_accuracy": best["mean_accuracy"],
-        "classifier": best["classifier"],
-        "all_results": all_results,
-    }
 
 
 def run_experiment(sample_size: int) -> Dict[str, Any]:
-    """Экспериметы 2 (baseline) и 3 (filter_low_informativeness) для одного
+    """Эксперименты 2 (baseline) и 3 (filter_low_informativeness) для одного
     размера выборки — статья, "the aim of the second experiment.../third
-    experiment..."."""
+    experiment...". Перебор N_SUBCLASSES_GRID и выбор лучшей по mean
+    per-class accuracy точки (аналог "identified the number of subspaces at
+    which the highest accuracy was achieved", Fig. 5/7) делегированы
+    subspace_conjugacy.evaluation.paper_methodology.compare_informativeness_filter
+    — единственная реализация методологии статьи в проекте (см. README,
+    раздел "Опциональные находки из MATLAB-кода" и тесты
+    tests/test_paper_methodology.py)."""
     per_class_count = sample_size // len(CLASSES)
     print(f"\n--- Размер выборки: {sample_size} ({per_class_count} на класс) ---")
 
@@ -268,13 +227,34 @@ def run_experiment(sample_size: int) -> Dict[str, Any]:
     X_by_class, X_test = preprocess_and_vectorize(pipeline)
     print(f"   готово за {time.perf_counter() - t0:.1f}s")
 
-    print("   Эксперимент 2 (без фильтра малоинформативных изображений):")
-    baseline = run_accuracy_sweep(X_by_class, X_test, y_test, filter_low_informativeness=False)
+    X_train = np.vstack([X_by_class[cls] for cls in CLASSES])
+    y_train = np.concatenate(
+        [np.full(X_by_class[cls].shape[0], cls) for cls in CLASSES]
+    )
 
-    print("   Эксперимент 3 (с фильтром малоинформативных изображений, статья: <50% от среднего):")
-    filtered = run_accuracy_sweep(X_by_class, X_test, y_test, filter_low_informativeness=True)
+    print("   Подбор n_subclasses + сравнение эксперимент 2 vs 3 (без/с фильтром "
+          "малоинформативных изображений)...")
+    comparison = compare_informativeness_filter(
+        X_train, y_train, X_test, y_test,
+        n_subclasses_grid=N_SUBCLASSES_GRID,
+        classifier_kwargs={"freeze_basis_at": FREEZE_BASIS_AT},
+        informativeness_min_fraction=INFORMATIVENESS_MIN_FRACTION,
+    )
+    _print_table("Эксперимент 2 (без фильтра)", comparison["table_I_baseline"])
+    _print_table("Эксперимент 3 (с фильтром, статья: <50% от среднего)", comparison["table_II_filtered"])
 
-    return {"sample_size": sample_size, "baseline": baseline, "filtered": filtered}
+    return {
+        "sample_size": sample_size,
+        "baseline": comparison["table_I_baseline"],
+        "filtered": comparison["table_II_filtered"],
+    }
+
+
+def _best_point(table: Dict[str, Any]) -> Dict[str, Any]:
+    """Извлекает запись all_results, соответствующую best_n_subclasses."""
+    return next(
+        r for r in table["all_results"] if r["n_subclasses"] == table["best_n_subclasses"]
+    )
 
 
 def print_comparison_tables(results: List[Dict[str, Any]]) -> None:
@@ -288,12 +268,13 @@ def print_comparison_tables(results: List[Dict[str, Any]]) -> None:
         print(f"\n{label}")
         print(header)
         for r in results:
-            point = r[key]
+            table = r[key]
+            point = _best_point(table)
             row = f"{r['sample_size']:>12} | "
             row += " | ".join(
                 f"{point['per_class_accuracy'].get(cls, float('nan')):>11.3f}" for cls in CLASSES
             )
-            row += f" | {point['mean_accuracy']:.3f}  (n_subclasses={point['best_n_subclasses']})"
+            row += f" | {point['mean_per_class_accuracy']:.3f}  (n_subclasses={table['best_n_subclasses']})"
             print(row)
 
 
@@ -302,36 +283,33 @@ def save_artifacts(results: List[Dict[str, Any]]) -> None:
     print("\nСохранение артефактов...")
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    best_overall = max(
+    best_overall_table = max(
         (r[key] for r in results for key in ("baseline", "filtered")),
-        key=lambda point: point["mean_accuracy"],
+        key=lambda table: table["best_mean_per_class_accuracy"],
     )
     model_path = ARTIFACTS_DIR / "subspace_model.pkl"
-    save_model(best_overall["classifier"], model_path)
-    print(f"   Лучшая модель (mean_accuracy={best_overall['mean_accuracy']:.3f}): {model_path}")
+    save_model(best_overall_table["best_estimator_"], model_path)
+    print(
+        f"   Лучшая модель (mean_per_class_accuracy="
+        f"{best_overall_table['best_mean_per_class_accuracy']:.3f}): {model_path}"
+    )
+
+    def _table_summary(table: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "best_n_subclasses": table["best_n_subclasses"],
+            "per_class_accuracy": _best_point(table)["per_class_accuracy"],
+            "mean_accuracy": table["best_mean_per_class_accuracy"],
+            "all_results": [
+                {k: v for k, v in point.items()} for point in table["all_results"]
+            ],
+        }
 
     summary_path = ARTIFACTS_DIR / "experiment_report.json"
     summary = [
         {
             "sample_size": r["sample_size"],
-            "baseline": {
-                "best_n_subclasses": r["baseline"]["best_n_subclasses"],
-                "per_class_accuracy": r["baseline"]["per_class_accuracy"],
-                "mean_accuracy": r["baseline"]["mean_accuracy"],
-                "all_results": [
-                    {k: v for k, v in point.items()}
-                    for point in r["baseline"]["all_results"]
-                ],
-            },
-            "filtered": {
-                "best_n_subclasses": r["filtered"]["best_n_subclasses"],
-                "per_class_accuracy": r["filtered"]["per_class_accuracy"],
-                "mean_accuracy": r["filtered"]["mean_accuracy"],
-                "all_results": [
-                    {k: v for k, v in point.items()}
-                    for point in r["filtered"]["all_results"]
-                ],
-            },
+            "baseline": _table_summary(r["baseline"]),
+            "filtered": _table_summary(r["filtered"]),
         }
         for r in results
     ]

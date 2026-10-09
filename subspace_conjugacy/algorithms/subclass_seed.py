@@ -23,7 +23,7 @@
 """
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,23 @@ class CosineSecondVectorAttacher:
 
     Parameters
     ----------
-    None
+    criterion : {"min", "max"}, default="min"
+        Какой экстремум cos(v, center) выбирать для второго вектора пары:
+        - "min" — канон (refactoring_plan.txt/NB6): наиболее НЕПОХОЖИЙ на
+          центр вектор — пара максимально «растягивает» подпространство.
+        - "max" — theory/Теоретические основы.docx, раздел 5 (между
+          формулами (8) и (11)): «...к ним присоединяется по одному
+          вектору, для которых величины (9), (10) принимают МАКСИМАЛЬНЫЕ
+          значения» — наиболее ПОХОЖИЙ на центр вектор, т.е. локальное
+          «уплотнение» зарождающегося подкласса вокруг центра, а не
+          расширение охвата. Сами формулы (9)-(10) встроены в документ как
+          WMF-картинки (Equation Editor) и не читаются как текст — "max"
+          реализует это текстуальное указание буквально, направление
+          экстремума не подтверждено побитово по формуле. См. также
+          algorithms/recursive_bisection.py, где эта альтернатива
+          используется как часть воспроизведения алгоритма из раздела 5
+          документа (рекурсивная бисекция, а не плоский канон с
+          n_subclasses центрами сразу).
 
     Attributes
     ----------
@@ -87,7 +103,13 @@ class CosineSecondVectorAttacher:
     >>> print(f"Сформировано пар: {len(pairs)}")
     """
 
-    def __init__(self) -> None:
+    def __init__(self, criterion: Literal["min", "max"] = "min") -> None:
+        if criterion not in ("min", "max"):
+            raise ValueError(
+                f"criterion должен быть 'min' или 'max', получено {criterion!r}."
+            )
+
+        self.criterion = criterion
         self.pairs_: Optional[np.ndarray] = None
         self.cosine_values_: Optional[np.ndarray] = None
         self.is_fitted_: bool = False
@@ -164,21 +186,25 @@ class CosineSecondVectorAttacher:
             remaining_list = list(remaining)
             cos_with_center = cos_matrix[center_idx, remaining_list]
 
-            # Находим индекс с минимальным cos (наиболее непохожий)
-            min_cos_idx_local = np.argmin(cos_with_center)
-            second_vector_idx = remaining_list[min_cos_idx_local]
-            min_cos_value = cos_with_center[min_cos_idx_local]
+            # Находим индекс экстремума cos согласно self.criterion:
+            # "min" (канон) — наиболее непохожий; "max" (theory) — наиболее похожий.
+            extremum_idx_local = (
+                np.argmin(cos_with_center) if self.criterion == "min"
+                else np.argmax(cos_with_center)
+            )
+            second_vector_idx = remaining_list[extremum_idx_local]
+            extremum_cos_value = cos_with_center[extremum_idx_local]
             logger.debug(
                 "CosineSecondVectorAttacher.fit: подкласс %d — центр=%d, "
-                "второй вектор=%d, cos=%.6f (кандидатов было %d).",
-                len(pairs), center_idx, second_vector_idx, min_cos_value,
-                len(remaining_list),
+                "второй вектор=%d, cos=%.6f (criterion=%s, кандидатов было %d).",
+                len(pairs), center_idx, second_vector_idx, extremum_cos_value,
+                self.criterion, len(remaining_list),
             )
 
             # Сохраняем пару
             pairs.append([center_idx, second_vector_idx])
             if store_cosine_values:
-                cosine_vals.append(min_cos_value)
+                cosine_vals.append(extremum_cos_value)
 
             # Удаляем использованный вектор из remaining
             remaining.remove(second_vector_idx)
@@ -307,7 +333,7 @@ class CosineSecondVectorAttacher:
     def __repr__(self) -> str:
         if self.is_fitted_:
             return (
-                f"CosineSecondVectorAttacher(n_pairs={len(self.pairs_)}, "
-                f"fitted=True)"
+                f"CosineSecondVectorAttacher(criterion={self.criterion!r}, "
+                f"n_pairs={len(self.pairs_)}, fitted=True)"
             )
-        return "CosineSecondVectorAttacher(fitted=False)"
+        return f"CosineSecondVectorAttacher(criterion={self.criterion!r}, fitted=False)"

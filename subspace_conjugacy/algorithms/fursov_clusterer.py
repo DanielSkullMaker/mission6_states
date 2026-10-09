@@ -74,6 +74,12 @@ class FursovClusterer:
         - "master": ratio R(x, s*) / mean(R(x, others)) — канон-совместимая
           аппроксимация идеи NB7, НЕ побитовая реплика
           (см. algorithms/subclass_growth.py, docstring модуля)
+    center_strategy : {"default", "windowed"}, default="default"
+        Стратегия формирования пула кандидатов в фазе A.2-A.3:
+        - "default": канон — кандидаты = все ещё не выбранные центры
+        - "windowed": theory/code/DATA_100.m/Otbor_100.m — пул позиционно
+          ограничен снизу (см. algorithms/reference_centers.py, docstring
+          модуля). НЕ часть опубликованной статьи.
     reg_param : float, default=1e-8
         Параметр регуляризации Тихонова для (Y^T Y)^{-1}.
     filter_dependent : bool, default=False
@@ -163,6 +169,7 @@ class FursovClusterer:
         n_subclasses: int = 8,
         freeze_basis_at: Optional[int] = 2,
         growth_strategy: Literal["default", "master"] = "default",
+        center_strategy: Literal["default", "windowed"] = "default",
         reg_param: float = 1e-8,
         filter_dependent: bool = False,
         dependency_threshold: float = 0.999,
@@ -183,6 +190,11 @@ class FursovClusterer:
                 f"growth_strategy должен быть 'default' или 'master', получено {growth_strategy}"
             )
 
+        if center_strategy not in ("default", "windowed"):
+            raise ValueError(
+                f"center_strategy должен быть 'default' или 'windowed', получено {center_strategy}"
+            )
+
         if not (0.0 < dependency_threshold <= 1.0):
             raise ValueError(
                 f"dependency_threshold должен быть в (0, 1], получено {dependency_threshold}"
@@ -197,6 +209,7 @@ class FursovClusterer:
         self.n_subclasses = n_subclasses
         self.freeze_basis_at = freeze_basis_at
         self.growth_strategy = growth_strategy
+        self.center_strategy = center_strategy
         self.reg_param = reg_param
         self.filter_dependent = filter_dependent
         self.dependency_threshold = dependency_threshold
@@ -247,10 +260,10 @@ class FursovClusterer:
         fit_start = time.perf_counter()
         logger.info(
             "FursovClusterer.fit: старт, %d векторов, N=%d, n_subclasses=%d, "
-            "freeze_basis_at=%s, growth_strategy=%s, filter_low_informativeness=%s, "
-            "filter_dependent=%s.",
+            "freeze_basis_at=%s, growth_strategy=%s, center_strategy=%s, "
+            "filter_low_informativeness=%s, filter_dependent=%s.",
             X_arr.shape[0], X_arr.shape[1], self.n_subclasses,
-            self.freeze_basis_at, self.growth_strategy,
+            self.freeze_basis_at, self.growth_strategy, self.center_strategy,
             self.filter_low_informativeness, self.filter_dependent,
         )
 
@@ -331,6 +344,7 @@ class FursovClusterer:
         self._center_builder = ReferenceCenterBuilder(
             n_subclasses=self.n_subclasses,
             reg_param=self.reg_param,
+            strategy=self.center_strategy,
         )
         self._center_builder.fit(X_for_clustering, initial_pair_local)
         center_indices_local = self._center_builder.center_indices_

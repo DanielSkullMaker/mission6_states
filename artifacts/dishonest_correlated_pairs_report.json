@@ -1,0 +1,75 @@
+{
+  "n_subclasses": 8,
+  "random_seed": 42,
+  "dataset_size_per_class": 200,
+  "warning": "dishonest_correlated_pairs scenario is NOT a valid quality metric — see report .md",
+  "results": {
+    "dishonest_correlated_pairs": {
+      "n_train": 300,
+      "n_test": 300,
+      "fit_seconds": 100.26784529999713,
+      "accuracy": 0.6366666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.85,
+        "meningioma": 0.28,
+        "pituitary": 0.78
+      },
+      "confusion_matrix": [
+        [
+          85,
+          6,
+          9
+        ],
+        [
+          42,
+          28,
+          30
+        ],
+        [
+          10,
+          12,
+          78
+        ]
+      ],
+      "labels": [
+        "glioma",
+        "meningioma",
+        "pituitary"
+      ]
+    },
+    "honest_random_baseline": {
+      "n_train": 300,
+      "n_test": 300,
+      "fit_seconds": 90.81491819999064,
+      "accuracy": 0.64,
+      "per_class_accuracy": {
+        "glioma": 0.84,
+        "meningioma": 0.16,
+        "pituitary": 0.92
+      },
+      "confusion_matrix": [
+        [
+          84,
+          4,
+          12
+        ],
+        [
+          37,
+          16,
+          47
+        ],
+        [
+          8,
+          0,
+          92
+        ]
+      ],
+      "labels": [
+        "glioma",
+        "meningioma",
+        "pituitary"
+      ]
+    }
+  },
+  "gap_dishonest_minus_honest": -0.0033333333333332993
+}

@@ -1,0 +1,48 @@
+{
+  "random_seed": 42,
+  "honest_baseline_accuracy": 0.6219774958103902,
+  "target_accuracy": 0.8219774958103903,
+  "honest_push": {
+    "n_subclasses": 14,
+    "train_per_class": 200,
+    "clf_kwargs": {
+      "filter_dependent": true
+    },
+    "n_train": 400,
+    "n_test": 4177,
+    "fit_seconds": 652.5847893999999,
+    "accuracy": 0.5556619583433086,
+    "accuracy_smoothed": 0.5475221450802011,
+    "patient_overlap_fraction": 0.0
+  },
+  "dishonest_push_grid": [
+    {
+      "n_subclasses": 8,
+      "avg_objects_per_subclass": 12.5,
+      "fit_seconds": 78.74576739999975,
+      "accuracy": 0.595,
+      "inflation_over_honest_baseline": -0.026977495810390217
+    },
+    {
+      "n_subclasses": 20,
+      "avg_objects_per_subclass": 5.0,
+      "fit_seconds": 47.33835249999902,
+      "accuracy": 0.76,
+      "inflation_over_honest_baseline": 0.13802250418960982
+    },
+    {
+      "n_subclasses": 35,
+      "avg_objects_per_subclass": 2.857142857142857,
+      "fit_seconds": 19.73288650000177,
+      "accuracy": 0.905,
+      "inflation_over_honest_baseline": 0.28302250418960984
+    },
+    {
+      "n_subclasses": 45,
+      "avg_objects_per_subclass": 2.2222222222222223,
+      "fit_seconds": 6.176343400000405,
+      "accuracy": 0.995,
+      "inflation_over_honest_baseline": 0.3730225041896098
+    }
+  ]
+}

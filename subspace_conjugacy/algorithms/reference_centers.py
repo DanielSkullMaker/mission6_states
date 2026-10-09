@@ -24,10 +24,32 @@
 
 Связь с GlobalMinCosinePairFinder:
   Требует initial_pair из фазы A.1 для инициализации centers = [idx1, idx2].
+
+Стратегия strategy="windowed" (theory/code/DATA_100.m, вторая половина
+функции, строки 61-84; Otbor_100.m):
+  Альтернативный способ формировать пул кандидатов на каждом шаге. Канон
+  ("default") исключает из кандидатов только уже выбранные центры. MATLAB-
+  прообраз сдвигает НИЖНЮЮ ГРАНИЦУ пула вместе с числом уже найденных
+  центров (`k_test = Nklass:1:M_Vector_100`, где Nklass растёт на 1 при
+  каждом новом центре) — т.е. позиционно "отсекает" уже пройденную часть
+  индексного диапазона, а не по факту "этот вектор уже выбран".
+  strategy="windowed" воспроизводит эту идею как самостоятельную (не
+  побитовую) альтернативу: на шаге, где уже найдено k центров, кандидатами
+  становятся индексы >= (k - 1), исключая сами центры. Уже выбранный вектор
+  математически никогда не будет выбран повторно (R(x, Y) = 1 для x ∈
+  span(Y) — максимум, а не минимум), поэтому явное исключение центров из
+  пула — защитная мера, а не критичная часть алгоритма. Если окно исчерпало
+  кандидатов раньше, чем набрано n_subclasses центров (случается на малых
+  M), пул расширяется до всех ещё не выбранных индексов — без этой
+  подстраховки алгоритм мог бы завершиться с ошибкой на малых датасетах, чего
+  в MATLAB-прообразе с M=100 никогда не происходило.
+  ⚠ Это НЕ часть опубликованной статьи Korshikov & Fursov — источник
+  находится только в theory/code/*.m, отдельной от статьи MATLAB-реализации
+  метода.
 """
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -68,6 +90,14 @@ class ReferenceCenterBuilder:
         Количество центров (подклассов) для формирования.
     reg_param : float, default=1e-8
         Параметр регуляризации Тихонова при обращении матрицы Грама.
+    strategy : {"default", "windowed"}, default="default"
+        Способ формировать пул кандидатов на каждом шаге:
+        - "default" — канон: кандидаты = все векторы, ещё не выбранные
+          центрами.
+        - "windowed" — theory/code/DATA_100.m/Otbor_100.m: кандидаты
+          позиционно ограничены снизу индексом (число уже найденных
+          центров - 1), см. docstring модуля. Не часть опубликованной
+          статьи.
 
     Attributes
     ----------
@@ -104,9 +134,16 @@ class ReferenceCenterBuilder:
         self,
         n_subclasses: int = 8,
         reg_param: float = 1e-8,
+        strategy: Literal["default", "windowed"] = "default",
     ) -> None:
+        if strategy not in ("default", "windowed"):
+            raise ValueError(
+                f"strategy должен быть 'default' или 'windowed', получено {strategy!r}."
+            )
+
         self.n_subclasses = n_subclasses
         self.reg_param = reg_param
+        self.strategy = strategy
         self.center_indices_: Optional[np.ndarray] = None
         self.r_values_history_: Optional[List[np.ndarray]] = None
         self.is_fitted_: bool = False
@@ -168,7 +205,24 @@ class ReferenceCenterBuilder:
             Y = X_arr[centers].T  # (N, k), k = len(centers)
 
             # 2. Находим кандидатов (векторы, которые ещё не центры)
-            remaining = [i for i in range(n_samples) if i not in centers]
+            if self.strategy == "windowed":
+                centers_set = set(centers)
+                window_start = len(centers) - 1
+                remaining = [
+                    i for i in range(window_start, n_samples) if i not in centers_set
+                ]
+                if not remaining:
+                    # Окно исчерпало кандидатов раньше времени (малые M) —
+                    # подстраховка, которой не было в MATLAB-прообразе
+                    # (см. docstring модуля).
+                    logger.debug(
+                        "ReferenceCenterBuilder.fit: strategy='windowed' — окно "
+                        "с %d исчерпано, расширяем пул до всех невыбранных.",
+                        window_start,
+                    )
+                    remaining = [i for i in range(n_samples) if i not in centers_set]
+            else:
+                remaining = [i for i in range(n_samples) if i not in centers]
 
             if not remaining:
                 logger.error(
@@ -280,6 +334,9 @@ class ReferenceCenterBuilder:
         if self.is_fitted_:
             return (
                 f"ReferenceCenterBuilder(n_subclasses={self.n_subclasses}, "
-                f"centers={list(self.center_indices_)})"
+                f"strategy='{self.strategy}', centers={list(self.center_indices_)})"
             )
-        return f"ReferenceCenterBuilder(n_subclasses={self.n_subclasses}, not fitted)"
+        return (
+            f"ReferenceCenterBuilder(n_subclasses={self.n_subclasses}, "
+            f"strategy='{self.strategy}', not fitted)"
+        )

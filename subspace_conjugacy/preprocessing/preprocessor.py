@@ -9,13 +9,16 @@ subclass_growth.py.
 
 import logging
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import TYPE_CHECKING, List, Tuple, Union
 import cv2
 import numpy as np
 
 from subspace_conjugacy.preprocessing.centering import DEFAULT_MIN_SHIFT, center_image
 from subspace_conjugacy.preprocessing.normalization import DEFAULT_THRESHOLD
 from subspace_conjugacy.preprocessing.resize import DEFAULT_SIZE, resize_image
+
+if TYPE_CHECKING:
+    from subspace_conjugacy.config import DatasetConfig
 
 logger = logging.getLogger(__name__)
 

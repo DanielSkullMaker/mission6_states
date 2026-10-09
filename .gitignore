@@ -35,6 +35,12 @@ coverage.xml
 .vscode/
 *.swp
 
+# === Jupyter ===
+.ipynb_checkpoints/
+
+# === Claude Code session state ===
+.claude/
+
 # === OS ===
 .DS_Store
 Thumbs.db
@@ -43,8 +49,11 @@ Thumbs.db
 # Обученные модели и экспортированные артефакты (main.py -> artifacts/,
 # io/persistence.py::save_model, io/vectors.py::save_pipeline_artifact).
 # Это воспроизводимый результат обучения, а не исходный код — не версионируем.
-artifacts/
 *.pkl
+*.pt
+*.pth
+*.h5
+*.ckpt
 
 # Промежуточные CSV-стадии пайплайна (NB3-NB7 / DatasetConfig.paths),
 # если DatasetConfig указывает внутрь репозитория:

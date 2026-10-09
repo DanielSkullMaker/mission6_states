@@ -1,0 +1,116 @@
+{
+  "random_seed": 42,
+  "n_subclasses": 8,
+  "results": {
+    "patient_split": {
+      "honest": true,
+      "description": "непересекающиеся пациенты (32 train / 8 test)",
+      "n_train": 200,
+      "n_test": 4177,
+      "fit_seconds": 126.97835140000097,
+      "accuracy": 0.6219774958103902,
+      "per_class_accuracy": {
+        "no_tumor": 0.6504185130477598,
+        "tumor": 0.5950605778191985
+      },
+      "patient_overlap_fraction": 0.0,
+      "confusion_matrix": [
+        [
+          1321,
+          710
+        ],
+        [
+          869,
+          1277
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    },
+    "image_random_split": {
+      "honest": "общий стандарт ML — да; для ЭТОГО датасета — нет",
+      "description": "stratified random по срезам, patient_id игнорируется",
+      "n_train": 200,
+      "n_test": 200,
+      "fit_seconds": 141.6437189999997,
+      "accuracy": 0.59,
+      "per_class_accuracy": {
+        "no_tumor": 0.78,
+        "tumor": 0.4
+      },
+      "patient_overlap_fraction": 0.61,
+      "confusion_matrix": [
+        [
+          78,
+          22
+        ],
+        [
+          60,
+          40
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    },
+    "paired_correlation_split": {
+      "honest": false,
+      "description": "попарное разнесение максимально коррелирующих срезов",
+      "n_train": 200,
+      "n_test": 200,
+      "fit_seconds": 95.92078690000017,
+      "accuracy": 0.545,
+      "per_class_accuracy": {
+        "no_tumor": 0.59,
+        "tumor": 0.5
+      },
+      "patient_overlap_fraction": 0.705,
+      "confusion_matrix": [
+        [
+          59,
+          41
+        ],
+        [
+          50,
+          50
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ],
+      "pair_same_patient_fraction": 0.135,
+      "n_pairs": 200
+    },
+    "train_equals_test": {
+      "honest": false,
+      "description": "train == test (100% пересечение)",
+      "n_train": 200,
+      "n_test": 200,
+      "fit_seconds": 127.76201570000012,
+      "accuracy": 0.595,
+      "per_class_accuracy": {
+        "no_tumor": 0.6,
+        "tumor": 0.59
+      },
+      "patient_overlap_fraction": 1.0,
+      "confusion_matrix": [
+        [
+          60,
+          40
+        ],
+        [
+          41,
+          59
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    }
+  }
+}

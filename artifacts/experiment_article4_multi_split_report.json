@@ -1,0 +1,95 @@
+{
+  "n_splits": 5,
+  "epochs": 6,
+  "device": "cuda",
+  "runs": [
+    {
+      "split_seed": 42,
+      "n_train_patients": 128,
+      "n_test_patients": 32,
+      "no_context_dice_tumor": 0.6756327266777533,
+      "meaningful_dice_tumor": 0.624818501122689,
+      "shuffled_dice_tumor": 0.041433881098670994,
+      "meaningful_detection_recall": 0.7702702702702703,
+      "h1_holds": false,
+      "h2_holds": true,
+      "fit_seconds": 256.6503236999997
+    },
+    {
+      "split_seed": 101,
+      "n_train_patients": 128,
+      "n_test_patients": 32,
+      "no_context_dice_tumor": 0.5471817210954872,
+      "meaningful_dice_tumor": 0.66777684286171,
+      "shuffled_dice_tumor": 0.06570302314520475,
+      "meaningful_detection_recall": 0.8412618928392589,
+      "h1_holds": true,
+      "h2_holds": true,
+      "fit_seconds": 284.81148530000064
+    },
+    {
+      "split_seed": 202,
+      "n_train_patients": 128,
+      "n_test_patients": 32,
+      "no_context_dice_tumor": 0.5579481902255837,
+      "meaningful_dice_tumor": 0.6330033953882136,
+      "shuffled_dice_tumor": 0.05217365720147265,
+      "meaningful_detection_recall": 0.7947799385875128,
+      "h1_holds": true,
+      "h2_holds": true,
+      "fit_seconds": 272.8706383000026
+    },
+    {
+      "split_seed": 303,
+      "n_train_patients": 128,
+      "n_test_patients": 32,
+      "no_context_dice_tumor": 0.6766350223705846,
+      "meaningful_dice_tumor": 0.6908879544105649,
+      "shuffled_dice_tumor": 0.20008473384264872,
+      "meaningful_detection_recall": 0.8803142329020333,
+      "h1_holds": true,
+      "h2_holds": true,
+      "fit_seconds": 265.110341399999
+    },
+    {
+      "split_seed": 404,
+      "n_train_patients": 128,
+      "n_test_patients": 32,
+      "no_context_dice_tumor": 0.4799483706481629,
+      "meaningful_dice_tumor": 0.5418261243602264,
+      "shuffled_dice_tumor": 0.07579398836259105,
+      "meaningful_detection_recall": 0.6852394916911045,
+      "h1_holds": true,
+      "h2_holds": true,
+      "fit_seconds": 262.0627572000012
+    }
+  ],
+  "summary": {
+    "no_context_dice_tumor": {
+      "mean": 0.5874692062035144,
+      "std": 0.07717337757850304,
+      "min": 0.4799483706481629,
+      "max": 0.6766350223705846
+    },
+    "meaningful_dice_tumor": {
+      "mean": 0.6316625636286808,
+      "std": 0.05085491700832101,
+      "min": 0.5418261243602264,
+      "max": 0.6908879544105649
+    },
+    "shuffled_dice_tumor": {
+      "mean": 0.08703785673011763,
+      "std": 0.057717295721515995,
+      "min": 0.041433881098670994,
+      "max": 0.20008473384264872
+    },
+    "meaningful_detection_recall": {
+      "mean": 0.7943731652580359,
+      "std": 0.06644651021614699,
+      "min": 0.6852394916911045,
+      "max": 0.8803142329020333
+    }
+  },
+  "h1_holds_count": 4,
+  "h2_holds_count": 5
+}

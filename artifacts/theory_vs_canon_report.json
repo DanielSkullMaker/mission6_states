@@ -1,0 +1,196 @@
+{
+  "config": {
+    "n_subclasses": 8,
+    "freeze_basis_at": 2,
+    "train_fraction": 0.7,
+    "seeds": [
+      42,
+      43,
+      44,
+      45,
+      46
+    ]
+  },
+  "per_seed_results": {
+    "42": {
+      "canonical": {
+        "accuracy": 0.7272727272727273,
+        "per_class_accuracy": {
+          "glioma": 0.7222222222222222,
+          "meningioma": 0.5,
+          "pituitary": 0.9473684210526315
+        },
+        "elapsed_s": 5.8043361,
+        "error": null
+      },
+      "recursive_bisection_min": {
+        "accuracy": 0.7272727272727273,
+        "per_class_accuracy": {
+          "glioma": 0.6666666666666666,
+          "meningioma": 0.5,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 29.625389999999243,
+        "error": null
+      },
+      "recursive_bisection_max": {
+        "accuracy": 0.7636363636363637,
+        "per_class_accuracy": {
+          "glioma": 0.8888888888888888,
+          "meningioma": 0.3888888888888889,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 23.971155899999758,
+        "error": null
+      }
+    },
+    "43": {
+      "canonical": {
+        "accuracy": 0.8181818181818182,
+        "per_class_accuracy": {
+          "glioma": 0.7368421052631579,
+          "meningioma": 0.7222222222222222,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 5.8900895999995555,
+        "error": null
+      },
+      "recursive_bisection_min": {
+        "accuracy": 0.7818181818181819,
+        "per_class_accuracy": {
+          "glioma": 0.7894736842105263,
+          "meningioma": 0.5555555555555556,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 30.09577680000075,
+        "error": null
+      },
+      "recursive_bisection_max": {
+        "accuracy": 0.8181818181818182,
+        "per_class_accuracy": {
+          "glioma": 0.6842105263157895,
+          "meningioma": 0.7777777777777778,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 31.69032150000021,
+        "error": null
+      }
+    },
+    "44": {
+      "canonical": {
+        "accuracy": 0.7636363636363637,
+        "per_class_accuracy": {
+          "glioma": 0.7368421052631579,
+          "meningioma": 0.5555555555555556,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 5.628415700000005,
+        "error": null
+      },
+      "recursive_bisection_min": {
+        "accuracy": 0.7636363636363637,
+        "per_class_accuracy": {
+          "glioma": 0.7368421052631579,
+          "meningioma": 0.5555555555555556,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 29.18775749999986,
+        "error": null
+      },
+      "recursive_bisection_max": {
+        "accuracy": 0.6909090909090909,
+        "per_class_accuracy": {
+          "glioma": 0.5789473684210527,
+          "meningioma": 0.5,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 30.08979989999989,
+        "error": null
+      }
+    },
+    "45": {
+      "canonical": {
+        "accuracy": 0.8363636363636363,
+        "per_class_accuracy": {
+          "glioma": 0.8888888888888888,
+          "meningioma": 0.6666666666666666,
+          "pituitary": 0.9473684210526315
+        },
+        "elapsed_s": 6.249548799999502,
+        "error": null
+      },
+      "recursive_bisection_min": {
+        "accuracy": 0.9090909090909091,
+        "per_class_accuracy": {
+          "glioma": 0.8333333333333334,
+          "meningioma": 0.8888888888888888,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 34.32957599999918,
+        "error": null
+      },
+      "recursive_bisection_max": {
+        "accuracy": 0.7636363636363637,
+        "per_class_accuracy": {
+          "glioma": 0.8888888888888888,
+          "meningioma": 0.5,
+          "pituitary": 0.8947368421052632
+        },
+        "elapsed_s": 34.53882969999995,
+        "error": null
+      }
+    },
+    "46": {
+      "canonical": {
+        "accuracy": 0.7090909090909091,
+        "per_class_accuracy": {
+          "glioma": 0.7777777777777778,
+          "meningioma": 0.42105263157894735,
+          "pituitary": 0.9444444444444444
+        },
+        "elapsed_s": 6.399234999999862,
+        "error": null
+      },
+      "recursive_bisection_min": {
+        "accuracy": 0.6909090909090909,
+        "per_class_accuracy": {
+          "glioma": 0.6111111111111112,
+          "meningioma": 0.47368421052631576,
+          "pituitary": 1.0
+        },
+        "elapsed_s": 41.96366200000011,
+        "error": null
+      },
+      "recursive_bisection_max": {
+        "accuracy": 0.7272727272727273,
+        "per_class_accuracy": {
+          "glioma": 0.5,
+          "meningioma": 0.7894736842105263,
+          "pituitary": 0.8888888888888888
+        },
+        "elapsed_s": 32.658021199999894,
+        "error": null
+      }
+    }
+  },
+  "summary": {
+    "canonical": {
+      "mean_accuracy": 0.7709090909090909,
+      "std_accuracy": 0.04959338798903946,
+      "n_successful_seeds": 5,
+      "n_total_seeds": 5
+    },
+    "recursive_bisection_min": {
+      "mean_accuracy": 0.7745454545454546,
+      "std_accuracy": 0.07416755656134959,
+      "n_successful_seeds": 5,
+      "n_total_seeds": 5
+    },
+    "recursive_bisection_max": {
+      "mean_accuracy": 0.7527272727272727,
+      "std_accuracy": 0.0424069228716022,
+      "n_successful_seeds": 5,
+      "n_total_seeds": 5
+    }
+  }
+}

@@ -223,3 +223,47 @@ class TestPublicApiExport:
         assert subspace_conjugacy.grid_search_classifier is grid_search_classifier
         assert subspace_conjugacy.random_search_classifier is random_search_classifier
         assert subspace_conjugacy.search_hyperparameters is search_hyperparameters
+
+
+class TestFitClassifierParallel:
+    """fit_classifier_parallel должен совпадать с обычным .fit() при любой
+    комбинации n_jobs (внешний уровень — по классам, внутренний — внутри
+    B.2 одного класса через ParallelFursovClusterer) — см. docstring
+    model_selection/parallel_classifier.py."""
+
+    def test_sequential_matches_direct_fit(self, three_class_data):
+        from subspace_conjugacy.model_selection import fit_classifier_parallel
+
+        X, y = three_class_data
+        baseline = SubspaceConjugacyClassifier(n_subclasses=2, freeze_basis_at=2)
+        baseline.fit(X, y)
+
+        clf = fit_classifier_parallel(X, y, n_subclasses=2, freeze_basis_at=2, n_jobs=1)
+        assert np.array_equal(baseline.predict(X), clf.predict(X))
+
+    @pytest.mark.parametrize("n_jobs", [2, 3])
+    def test_outer_parallel_matches_baseline(self, three_class_data, n_jobs):
+        from subspace_conjugacy.model_selection import fit_classifier_parallel
+
+        X, y = three_class_data
+        baseline = SubspaceConjugacyClassifier(n_subclasses=2, freeze_basis_at=2)
+        baseline.fit(X, y)
+
+        clf = fit_classifier_parallel(X, y, n_subclasses=2, freeze_basis_at=2, n_jobs=n_jobs)
+        assert np.array_equal(baseline.predict(X), clf.predict(X))
+
+    def test_inner_and_outer_parallel_combined_matches_baseline(self, three_class_data):
+        from subspace_conjugacy.algorithms import ParallelFursovClusterer
+        from subspace_conjugacy.model_selection import fit_classifier_parallel
+
+        X, y = three_class_data
+        baseline = SubspaceConjugacyClassifier(n_subclasses=2, freeze_basis_at=2)
+        baseline.fit(X, y)
+
+        clf = fit_classifier_parallel(
+            X, y, n_subclasses=2, freeze_basis_at=2,
+            clusterer_cls=ParallelFursovClusterer,
+            clusterer_kwargs={"n_jobs": 2},
+            n_jobs=3,
+        )
+        assert np.array_equal(baseline.predict(X), clf.predict(X))

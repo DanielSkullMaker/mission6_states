@@ -26,8 +26,17 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 import numpy as np
+
+if TYPE_CHECKING:
+    from subspace_conjugacy.algorithms.fursov_clusterer import FursovClusterer
+    from subspace_conjugacy.algorithms.global_pair import GlobalMinCosinePairFinder
+    from subspace_conjugacy.algorithms.reference_centers import ReferenceCenterBuilder
+    from subspace_conjugacy.algorithms.subclass_growth import ConjugacyClusterGrowth
+    from subspace_conjugacy.algorithms.subclass_seed import CosineSecondVectorAttacher
+    from subspace_conjugacy.config import DatasetConfig
+    from subspace_conjugacy.models.classifier import SubspaceConjugacyClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +213,7 @@ def stage_cluster(
     n_subclasses: int = 8,
     freeze_basis_at: Optional[int] = 2,
     growth_strategy: str = "default",
+    center_strategy: str = "default",
     reg_param: float = 1e-8,
 ) -> "FursovClusterer":
     """Фасад A.1->A.3->B.1->B.2 (канон) — один вызов вместо 4 стадий выше."""
@@ -214,6 +224,7 @@ def stage_cluster(
         n_subclasses=n_subclasses,
         freeze_basis_at=freeze_basis_at,
         growth_strategy=growth_strategy,
+        center_strategy=center_strategy,
         reg_param=reg_param,
     )
     clusterer.fit(X)

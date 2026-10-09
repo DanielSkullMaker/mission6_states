@@ -3,3 +3,14 @@ scipy>=1.8.0
 scikit-learn>=1.2.0
 opencv-python-headless>=4.8.0
 pillow>=10.0.0
+joblib>=1.2.0
+
+# Только для generate_draft_report.py / plot_confusion_matrix (pip install -e ".[reports]")
+python-docx>=1.0.0
+matplotlib>=3.5.0
+
+# Только для CNN-моделей в experiment_draft_variant2.py (pip install -e ".[experiments]")
+torch>=2.0.0
+
+# Только для experiments/prepare_brats_dataset.py (чтение NIfTI-объёмов BraTS)
+nibabel>=5.0.0

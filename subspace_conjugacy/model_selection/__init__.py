@@ -10,6 +10,7 @@ from subspace_conjugacy.model_selection.search import (
     search_hyperparameters,
     summarize_search_results,
 )
+from subspace_conjugacy.model_selection.parallel_classifier import fit_classifier_parallel
 
 __all__ = [
     "DEFAULT_PARAM_GRID",
@@ -18,4 +19,5 @@ __all__ = [
     "random_search_classifier",
     "search_hyperparameters",
     "summarize_search_results",
+    "fit_classifier_parallel",
 ]

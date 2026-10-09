@@ -1,0 +1,74 @@
+{
+  "n_subclasses": 8,
+  "dataset_size_per_class": 200,
+  "warning": "train==test (100% overlap) — accuracy here is NOT a valid quality metric, see report .md",
+  "results": {
+    "dishonest_train_equals_test": {
+      "n_train": 600,
+      "n_test": 600,
+      "overlap_fraction": 1.0,
+      "fit_seconds": 869.6150231999927,
+      "accuracy": 0.645,
+      "per_class_accuracy": {
+        "glioma": 0.79,
+        "meningioma": 0.215,
+        "pituitary": 0.93
+      },
+      "confusion_matrix": [
+        [
+          158,
+          1,
+          41
+        ],
+        [
+          78,
+          43,
+          79
+        ],
+        [
+          10,
+          4,
+          186
+        ]
+      ],
+      "labels": [
+        "glioma",
+        "meningioma",
+        "pituitary"
+      ]
+    }
+  },
+  "honest_reference_70_30": {
+    "n_train": 420,
+    "n_test": 180,
+    "fit_seconds": 324.30601089999254,
+    "accuracy": 0.6111111111111112,
+    "per_class_accuracy": {
+      "glioma": 0.8166666666666667,
+      "meningioma": 0.15,
+      "pituitary": 0.8666666666666667
+    },
+    "confusion_matrix": [
+      [
+        49,
+        1,
+        10
+      ],
+      [
+        18,
+        9,
+        33
+      ],
+      [
+        6,
+        2,
+        52
+      ]
+    ],
+    "labels": [
+      "glioma",
+      "meningioma",
+      "pituitary"
+    ]
+  }
+}

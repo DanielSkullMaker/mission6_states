@@ -1,0 +1,106 @@
+{
+  "n_subclasses": 8,
+  "random_seed": 42,
+  "dataset_size_per_class": 200,
+  "results": {
+    "70_30": {
+      "n_train": 420,
+      "n_test": 180,
+      "fit_seconds": 324.30601089999254,
+      "accuracy": 0.6111111111111112,
+      "per_class_accuracy": {
+        "glioma": 0.8166666666666667,
+        "meningioma": 0.15,
+        "pituitary": 0.8666666666666667
+      },
+      "confusion_matrix": [
+        [
+          49,
+          1,
+          10
+        ],
+        [
+          18,
+          9,
+          33
+        ],
+        [
+          6,
+          2,
+          52
+        ]
+      ],
+      "labels": [
+        "glioma",
+        "meningioma",
+        "pituitary"
+      ]
+    },
+    "50_10": {
+      "n_train": 150,
+      "n_test": 30,
+      "fit_seconds": 10.215173199991114,
+      "accuracy": 0.7666666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.8,
+        "meningioma": 0.5,
+        "pituitary": 1.0
+      },
+      "confusion_matrix": [
+        [
+          8,
+          1,
+          1
+        ],
+        [
+          3,
+          5,
+          2
+        ],
+        [
+          0,
+          0,
+          10
+        ]
+      ],
+      "labels": [
+        "glioma",
+        "meningioma",
+        "pituitary"
+      ]
+    },
+    "correlated_pairs": {
+      "n_train": 300,
+      "n_test": 300,
+      "fit_seconds": 110.60294640000211,
+      "accuracy": 0.6366666666666667,
+      "per_class_accuracy": {
+        "glioma": 0.85,
+        "meningioma": 0.28,
+        "pituitary": 0.78
+      },
+      "confusion_matrix": [
+        [
+          85,
+          6,
+          9
+        ],
+        [
+          42,
+          28,
+          30
+        ],
+        [
+          10,
+          12,
+          78
+        ]
+      ],
+      "labels": [
+        "glioma",
+        "meningioma",
+        "pituitary"
+      ]
+    }
+  }
+}

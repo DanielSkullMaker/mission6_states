@@ -94,6 +94,12 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         "default" — argmax R(x, Y_s); "master" — ratio к среднему,
         канон-совместимая аппроксимация идеи NB7, не побитовая реплика
         (см. algorithms/subclass_growth.py, docstring модуля).
+    center_strategy : {"default", "windowed"}, default="default"
+        Стратегия построения центров подклассов в FursovClusterer (Фаза
+        A.2-A.3): "default" — канон; "windowed" — theory/code/DATA_100.m/
+        Otbor_100.m, пул кандидатов позиционно ограничен снизу числом уже
+        найденных центров (см. algorithms/reference_centers.py, docstring
+        модуля). НЕ часть опубликованной статьи.
     reg_param : float, default=1e-8
         Коэффициент регуляризации при обращении матрицы Грама.
     filter_dependent : bool, default=False
@@ -163,6 +169,7 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         n_subclasses: Union[int, Mapping[ClassLabel, int]] = 8,
         freeze_basis_at: Union[int, str, None] = 2,
         growth_strategy: str = "default",
+        center_strategy: str = "default",
         reg_param: float = 1e-8,
         filter_dependent: bool = False,
         dependency_threshold: float = 0.999,
@@ -177,6 +184,7 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         )
         self.freeze_basis_at = freeze_basis_at
         self.growth_strategy = growth_strategy
+        self.center_strategy = center_strategy
         self.filter_dependent = filter_dependent
         self.dependency_threshold = dependency_threshold
         self.filter_low_informativeness = filter_low_informativeness
@@ -190,7 +198,7 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         self.excluded_indices_by_class_: Optional[Dict[ClassLabel, np.ndarray]] = None
 
     def fit(
-        self, X: np.ndarray, y: np.ndarray
+        self, X: np.ndarray, y: Optional[np.ndarray] = None
     ) -> "SubspaceConjugacyClassifier":
         """Обучает модель: строит подпространства подклассов для всех классов.
 
@@ -202,7 +210,9 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
         X : np.ndarray
             Обучающая матрица признаков размерности (M, N).
         y : np.ndarray
-            Вектор меток классов размерности (M,).
+            Вектор меток классов размерности (M,). Обязателен для
+            классификатора; ``None`` принимается только для соответствия
+            сигнатуре `BaseSubspaceEstimator.fit` и приводит к ValueError.
 
         Returns
         -------
@@ -262,6 +272,7 @@ class SubspaceConjugacyClassifier(ClassifierMixin, BaseSubspaceEstimator):
                 n_subclasses=n_subclasses_cls,
                 freeze_basis_at=effective_freeze_basis_at,
                 growth_strategy=self.growth_strategy,
+                center_strategy=self.center_strategy,
                 reg_param=self.reg_param,
                 filter_dependent=self.filter_dependent,
                 dependency_threshold=self.dependency_threshold,

@@ -1,0 +1,62 @@
+{
+  "random_seed": 42,
+  "n_subclasses": 12,
+  "baseline_val_accuracy": 0.6650671785028791,
+  "lever_results": [
+    {
+      "name": "1_filter_dependent",
+      "val_accuracy": 0.6650671785028791,
+      "fit_seconds": 63.39775910000026,
+      "n_train": 200,
+      "clf_kwargs": {
+        "filter_dependent": true
+      }
+    },
+    {
+      "name": "2_freeze_basis_auto",
+      "val_accuracy": 0.6650671785028791,
+      "fit_seconds": 57.55916730000172,
+      "n_train": 200,
+      "clf_kwargs": {
+        "freeze_basis_at": "auto"
+      }
+    },
+    {
+      "name": "3_center_windowed",
+      "val_accuracy": 0.6650671785028791,
+      "fit_seconds": 57.28416320000542,
+      "n_train": 200,
+      "clf_kwargs": {
+        "center_strategy": "windowed"
+      }
+    },
+    {
+      "name": "4_stratified_sampling",
+      "val_accuracy": 0.6554702495201535,
+      "fit_seconds": 65.46055340000021,
+      "n_train": 200,
+      "clf_kwargs": {}
+    },
+    {
+      "name": "5_more_data_150pc",
+      "val_accuracy": 0.6679462571976967,
+      "fit_seconds": 247.02192139999534,
+      "n_train": 300,
+      "clf_kwargs": {}
+    }
+  ],
+  "winners": [
+    "5_more_data_150pc"
+  ],
+  "combined_kwargs": {},
+  "combined_val_accuracy": 0.6679462571976967,
+  "used_combo_for_final": true,
+  "final_kwargs": {},
+  "final_per_class": 150,
+  "final_stratified": false,
+  "final_fit_seconds": 267.84665349998977,
+  "final_accuracy": 0.5992255566311714,
+  "final_accuracy_smoothed": 0.6001936108422071,
+  "previous_final_accuracy": 0.6447241045498547,
+  "previous_final_accuracy_smoothed": 0.6563407550822846
+}

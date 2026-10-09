@@ -1,0 +1,107 @@
+{
+  "random_seed": 42,
+  "train_per_class": 100,
+  "grid_n_subclasses": [
+    4,
+    6,
+    8,
+    10,
+    12
+  ],
+  "search_train_patients": [
+    "BraTS20_Training_001",
+    "BraTS20_Training_002",
+    "BraTS20_Training_003",
+    "BraTS20_Training_004",
+    "BraTS20_Training_007",
+    "BraTS20_Training_010",
+    "BraTS20_Training_012",
+    "BraTS20_Training_013",
+    "BraTS20_Training_014",
+    "BraTS20_Training_015",
+    "BraTS20_Training_016",
+    "BraTS20_Training_018",
+    "BraTS20_Training_020",
+    "BraTS20_Training_021",
+    "BraTS20_Training_022",
+    "BraTS20_Training_023",
+    "BraTS20_Training_026",
+    "BraTS20_Training_027",
+    "BraTS20_Training_029",
+    "BraTS20_Training_030",
+    "BraTS20_Training_031",
+    "BraTS20_Training_035",
+    "BraTS20_Training_036",
+    "BraTS20_Training_037"
+  ],
+  "validation_patients": [
+    "BraTS20_Training_009",
+    "BraTS20_Training_011",
+    "BraTS20_Training_024",
+    "BraTS20_Training_025",
+    "BraTS20_Training_028",
+    "BraTS20_Training_032",
+    "BraTS20_Training_034",
+    "BraTS20_Training_039"
+  ],
+  "test_patients": [
+    "BraTS20_Training_005",
+    "BraTS20_Training_006",
+    "BraTS20_Training_008",
+    "BraTS20_Training_017",
+    "BraTS20_Training_019",
+    "BraTS20_Training_033",
+    "BraTS20_Training_038",
+    "BraTS20_Training_040"
+  ],
+  "grid_results": [
+    {
+      "n_subclasses": 4,
+      "fit_seconds": 78.55240310000954,
+      "val_accuracy": 0.5527831094049904,
+      "test_accuracy_peek_DISHONEST": 0.5779283639883833,
+      "test_accuracy_peek_smoothed_DISHONEST": 0.5779283639883833
+    },
+    {
+      "n_subclasses": 6,
+      "fit_seconds": 75.97267839999404,
+      "val_accuracy": 0.54510556621881,
+      "test_accuracy_peek_DISHONEST": 0.6001936108422071,
+      "test_accuracy_peek_smoothed_DISHONEST": 0.5982575024201355
+    },
+    {
+      "n_subclasses": 8,
+      "fit_seconds": 75.1388248000003,
+      "val_accuracy": 0.5575815738963532,
+      "test_accuracy_peek_DISHONEST": 0.6185866408518877,
+      "test_accuracy_peek_smoothed_DISHONEST": 0.611810261374637
+    },
+    {
+      "n_subclasses": 10,
+      "fit_seconds": 65.20478619998903,
+      "val_accuracy": 0.6228406909788867,
+      "test_accuracy_peek_DISHONEST": 0.6824782187802517,
+      "test_accuracy_peek_smoothed_DISHONEST": 0.6786060019361084
+    },
+    {
+      "n_subclasses": 12,
+      "fit_seconds": 59.6916773999983,
+      "val_accuracy": 0.6650671785028791,
+      "test_accuracy_peek_DISHONEST": 0.6873184898354308,
+      "test_accuracy_peek_smoothed_DISHONEST": 0.6882865440464666
+    }
+  ],
+  "best_honest_n_subclasses": 12,
+  "final_honest_fit_seconds": 62.316779499989934,
+  "summary": {
+    "honest_baseline (n_sub=8, no tuning)": 0.5924491771539206,
+    "honest_baseline + smoothing": 0.6001936108422071,
+    "honest_tuned (n_sub=12, val-selected)": 0.6447241045498547,
+    "honest_tuned (n_sub=12) + smoothing": 0.6563407550822846,
+    "dishonest_paired_correlation_split": 0.6,
+    "dishonest_image_random_split (patient leakage)": 0.605,
+    "dishonest_model_selection_leakage (n_sub=12, picked by peeking at test)": 0.6873184898354308,
+    "dishonest_model_selection_leakage + smoothing (n_sub=12)": 0.6882865440464666,
+    "dishonest_train_equals_test": 0.685
+  }
+}

@@ -89,7 +89,16 @@ def conjugate_criterion(
     ValueError
         Если размерности признаков X и Y не совпадают.
     """
-    X_arr = np.atleast_2d(X)
+    # Явное приведение к float64: X**2 ниже переполняется для целочисленных
+    # dtype (например, uint8 из load_and_vectorize_batch/imread — 200**2=40000
+    # молча оборачивается в 40000 % 256 = 64), давая полностью неверный R без
+    # исключения. Классы-обёртки библиотеки (BaseSubspaceEstimator._validate_data,
+    # FursovClusterer._validate_input и т.д.) уже кастуют перед вызовом этой
+    # функции, но conjugate_criterion — публичная API-функция (см. README,
+    # раздел "Показатель сопряжённости и косинусное сходство напрямую"),
+    # вызываемая пользователем напрямую на сырых данных.
+    X_arr = np.atleast_2d(np.asarray(X, dtype=np.float64))
+    Y = np.asarray(Y, dtype=np.float64)
     M, N = X_arr.shape
 
     if Y.ndim == 1:

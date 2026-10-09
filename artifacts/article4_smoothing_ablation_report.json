@@ -1,0 +1,54 @@
+{
+  "random_seed": 42,
+  "n_subclasses": 8,
+  "fit_seconds": 153.1014051000002,
+  "n_train": 200,
+  "n_test": 4177,
+  "results": [
+    {
+      "name": "none",
+      "description": "Без сглаживания",
+      "accuracy": 0.6219774958103902,
+      "per_class_accuracy": {
+        "no_tumor": 0.6504185130477598,
+        "tumor": 0.5950605778191985
+      }
+    },
+    {
+      "name": "fixed_3",
+      "description": "Фиксированное окно 3",
+      "accuracy": 0.6217380895379458,
+      "per_class_accuracy": {
+        "no_tumor": 0.6484490398818316,
+        "tumor": 0.5964585274930102
+      }
+    },
+    {
+      "name": "fixed_5",
+      "description": "Фиксированное окно 5",
+      "accuracy": 0.6217380895379458,
+      "per_class_accuracy": {
+        "no_tumor": 0.6489414081733137,
+        "tumor": 0.5959925442684063
+      }
+    },
+    {
+      "name": "fixed_7",
+      "description": "Фиксированное окно 7",
+      "accuracy": 0.6207804644481686,
+      "per_class_accuracy": {
+        "no_tumor": 0.6484490398818316,
+        "tumor": 0.5945945945945946
+      }
+    },
+    {
+      "name": "variable_3_5_7",
+      "description": "Переменное окно 3/5/7 (основной вариант статьи)",
+      "accuracy": 0.6198228393583912,
+      "per_class_accuracy": {
+        "no_tumor": 0.6474643032988675,
+        "tumor": 0.5936626281453867
+      }
+    }
+  ]
+}

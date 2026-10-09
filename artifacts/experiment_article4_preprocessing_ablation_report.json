@@ -1,0 +1,48 @@
+{
+  "random_seed": 42,
+  "n_patients": 15,
+  "img_size": 96,
+  "epochs": 5,
+  "results": {
+    "full_pipeline": {
+      "n_test": 382,
+      "mean_dice": 0.5977940123908573,
+      "median_dice": 1.0,
+      "pixel_accuracy": 0.9946564590605003,
+      "fit_seconds": 353.63774239999475,
+      "n_train": 1577
+    },
+    "no_centering": {
+      "n_test": 382,
+      "mean_dice": 0.7188216422974615,
+      "median_dice": 1.0,
+      "pixel_accuracy": 0.9961999845477022,
+      "fit_seconds": 349.31310620000295,
+      "n_train": 1577
+    },
+    "strong_threshold": {
+      "n_test": 382,
+      "mean_dice": 0.5977940123908573,
+      "median_dice": 1.0,
+      "pixel_accuracy": 0.9946564590605003,
+      "fit_seconds": 351.1812546000001,
+      "n_train": 1577
+    },
+    "clahe_contrast": {
+      "n_test": 382,
+      "mean_dice": 0.5977940123908573,
+      "median_dice": 1.0,
+      "pixel_accuracy": 0.9946564590605003,
+      "fit_seconds": 349.07288159999007,
+      "n_train": 1577
+    },
+    "minmax_norm": {
+      "n_test": 382,
+      "mean_dice": 0.5977940123908573,
+      "median_dice": 1.0,
+      "pixel_accuracy": 0.9946564590605003,
+      "fit_seconds": 352.7921192999929,
+      "n_train": 1577
+    }
+  }
+}

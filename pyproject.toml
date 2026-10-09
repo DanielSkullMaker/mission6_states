@@ -31,6 +31,7 @@ dependencies = [
     "scikit-learn>=1.2.0",
     "opencv-python-headless>=4.8.0",
     "pillow>=10.0.0",
+    "joblib>=1.2.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,14 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
+]
+reports = [
+    "python-docx>=1.0.0",
+    "matplotlib>=3.5.0",
+]
+experiments = [
+    "torch>=2.0.0",
+    "nibabel>=5.0.0",
 ]
 
 [project.urls]
@@ -98,7 +107,10 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+# 3.12, а не минимально поддерживаемый 3.10: установленные стабы numpy используют
+# синтаксис `type X = ...` (PEP 695, доступен только с 3.12), иначе mypy падает
+# с syntax error на numpy/__init__.pyi ещё до проверки самого проекта.
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

@@ -1,0 +1,103 @@
+{
+  "train_site": "CBICA",
+  "test_sites": [
+    "2013",
+    "TCIA"
+  ],
+  "n_train_patients": 88,
+  "n_test_patients": 23,
+  "epochs": 6,
+  "fit_seconds": 139.26964170000065,
+  "result": {
+    "n_test": 2987,
+    "mean_dice": 0.6493962965447332,
+    "median_dice": 0.9046105146408081,
+    "pixel_precision": 0.8915488245814944,
+    "pixel_recall": 0.32132083390335126,
+    "pixel_f1": 0.4723891141574926,
+    "pixel_precision_ci95": [
+      0.8899932671373624,
+      0.8930850280002612
+    ],
+    "pixel_recall_ci95": [
+      0.3199286911931199,
+      0.32271615978419727
+    ],
+    "pixel_confusion_matrix": {
+      "tp": 138577.0,
+      "fp": 16857.0,
+      "fn": 292696.0,
+      "tn": 27080062.0
+    },
+    "slice_detection_precision": 0.972027972027972,
+    "slice_detection_recall": 0.4510058403634004,
+    "slice_detection_f1": 0.6161347517730497,
+    "slice_detection_precision_ci95": [
+      0.9571899921086268,
+      0.9818207718760951
+    ],
+    "slice_detection_recall_ci95": [
+      0.42631381857215994,
+      0.47594153239715636
+    ],
+    "slice_confusion_matrix": {
+      "tp": 695,
+      "fp": 20,
+      "fn": 846,
+      "tn": 1426
+    },
+    "pixel_accuracy": 0.9887550551812484,
+    "n_with_tumor": 1541,
+    "mean_dice_with_tumor": 0.33225751638117546,
+    "median_dice_with_tumor": 0.06666667014360428,
+    "n_without_tumor": 1446,
+    "mean_dice_without_tumor": 0.9873706120579023,
+    "median_dice_without_tumor": 1.0
+  },
+  "baseline_random_split_comparison": {
+    "n_test": 4177,
+    "mean_dice": 0.8038517013268542,
+    "median_dice": 0.9502332806587219,
+    "pixel_precision": 0.9188661755378836,
+    "pixel_recall": 0.6823267525012731,
+    "pixel_f1": 0.7831248346891232,
+    "pixel_precision_ci95": [
+      0.917980755515008,
+      0.9197428728775189
+    ],
+    "pixel_recall_ci95": [
+      0.6810307599623964,
+      0.6836199255764646
+    ],
+    "pixel_confusion_matrix": {
+      "tp": 339012.0,
+      "fp": 29934.0,
+      "fn": 157835.0,
+      "tn": 37968451.0
+    },
+    "slice_detection_precision": 0.9904134212103056,
+    "slice_detection_recall": 0.7702702702702703,
+    "slice_detection_f1": 0.8665792922673656,
+    "slice_detection_precision_ci95": [
+      0.9844838349200459,
+      0.9940905859934465
+    ],
+    "slice_detection_recall_ci95": [
+      0.7519986627455373,
+      0.7875759738230359
+    ],
+    "slice_confusion_matrix": {
+      "tp": 1653,
+      "fp": 16,
+      "fn": 493,
+      "tn": 2015
+    },
+    "pixel_accuracy": 0.9951222790396483,
+    "n_with_tumor": 2146,
+    "mean_dice_with_tumor": 0.624818501122689,
+    "median_dice_with_tumor": 0.7750501930713654,
+    "n_without_tumor": 2031,
+    "mean_dice_without_tumor": 0.9930221826848742,
+    "median_dice_without_tumor": 1.0
+  }
+}

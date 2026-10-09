@@ -1,0 +1,76 @@
+{
+  "random_seed": 42,
+  "n_subclasses": 45,
+  "n_train": 200,
+  "train_per_class": 100,
+  "fit_seconds": 5.790191899999627,
+  "overlap_fraction": 1.0,
+  "results": {
+    "meaningful_smoothed": {
+      "n_test": 200,
+      "accuracy": 0.955,
+      "per_class_accuracy": {
+        "no_tumor": 0.91,
+        "tumor": 1.0
+      },
+      "confusion_matrix": [
+        [
+          91,
+          9
+        ],
+        [
+          0,
+          100
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    },
+    "meaningful_unsmoothed": {
+      "n_test": 200,
+      "accuracy": 0.995,
+      "per_class_accuracy": {
+        "no_tumor": 0.99,
+        "tumor": 1.0
+      },
+      "confusion_matrix": [
+        [
+          99,
+          1
+        ],
+        [
+          0,
+          100
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    },
+    "shuffled_smoothed": {
+      "n_test": 200,
+      "accuracy": 0.61,
+      "per_class_accuracy": {
+        "no_tumor": 0.44,
+        "tumor": 0.78
+      },
+      "confusion_matrix": [
+        [
+          44,
+          56
+        ],
+        [
+          22,
+          78
+        ]
+      ],
+      "labels": [
+        "no_tumor",
+        "tumor"
+      ]
+    }
+  }
+}
